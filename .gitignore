@@ -1,0 +1,11 @@
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
+.pytest_cache/
+pytest-cache-files-*/
+*.egg-info/
+*.duckdb
+*.duckdb.wal
+data/raw/
+data/warehouse/

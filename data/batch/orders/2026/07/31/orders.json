@@ -1,0 +1,33 @@
+[
+  {
+    "order_id": "ord_3001",
+    "retailer_id": "ret_1001",
+    "product_id": "prd_2001",
+    "order_ts": "2026-07-31T10:15:00Z",
+    "quantity": 4,
+    "gross_amount": 136.0,
+    "discount_amount": 6.0,
+    "status": "paid"
+  },
+  {
+    "order_id": "ord_3002",
+    "retailer_id": "ret_1002",
+    "product_id": "prd_2002",
+    "order_ts": "2026-07-31T11:20:00Z",
+    "quantity": 2,
+    "gross_amount": 96.0,
+    "discount_amount": 0.0,
+    "status": "created"
+  },
+  {
+    "order_id": "ord_3003",
+    "retailer_id": "ret_1003",
+    "product_id": "prd_2003",
+    "order_ts": "2026-07-31T12:35:00Z",
+    "quantity": 6,
+    "gross_amount": 168.0,
+    "discount_amount": 12.0,
+    "status": "shipped"
+  }
+]
+

@@ -1,0 +1,2 @@
+"""Mini Faire ingestion package."""
+

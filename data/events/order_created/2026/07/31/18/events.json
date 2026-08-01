@@ -1,0 +1,23 @@
+[
+  {
+    "event_id": "evt_9001",
+    "event_type": "order_created",
+    "event_ts": "2026-07-31T18:00:03Z",
+    "order_id": "ord_3004",
+    "retailer_id": "ret_1001",
+    "product_id": "prd_2002",
+    "quantity": 3,
+    "gross_amount": 144.0
+  },
+  {
+    "event_id": "evt_9002",
+    "event_type": "order_created",
+    "event_ts": "2026-07-31T18:04:41Z",
+    "order_id": "ord_3005",
+    "retailer_id": "ret_1002",
+    "product_id": "prd_2001",
+    "quantity": 1,
+    "gross_amount": 34.0
+  }
+]
+

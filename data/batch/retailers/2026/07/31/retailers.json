@@ -1,0 +1,27 @@
+[
+  {
+    "retailer_id": "ret_1001",
+    "name": "Northstar Mercantile",
+    "country": "US",
+    "category": "Home",
+    "signup_date": "2024-02-11",
+    "status": "active"
+  },
+  {
+    "retailer_id": "ret_1002",
+    "name": "Juniper Goods",
+    "country": "CA",
+    "category": "Lifestyle",
+    "signup_date": "2024-05-03",
+    "status": "active"
+  },
+  {
+    "retailer_id": "ret_1003",
+    "name": "Harbor Baby",
+    "country": "US",
+    "category": "Kids",
+    "signup_date": "2025-01-19",
+    "status": "paused"
+  }
+]
+

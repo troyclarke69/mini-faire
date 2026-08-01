@@ -1,0 +1,33 @@
+[
+  {
+    "product_id": "prd_2001",
+    "brand_id": "br_501",
+    "name": "Ceramic Pour Over",
+    "category": "Kitchen",
+    "unit_price": 34.0,
+    "unit_cost": 17.5,
+    "inventory_count": 220,
+    "is_active": true
+  },
+  {
+    "product_id": "prd_2002",
+    "brand_id": "br_502",
+    "name": "Linen Market Tote",
+    "category": "Accessories",
+    "unit_price": 48.0,
+    "unit_cost": 21.0,
+    "inventory_count": 95,
+    "is_active": true
+  },
+  {
+    "product_id": "prd_2003",
+    "brand_id": "br_503",
+    "name": "Wooden Stacking Set",
+    "category": "Kids",
+    "unit_price": 28.0,
+    "unit_cost": 12.0,
+    "inventory_count": 60,
+    "is_active": true
+  }
+]
+

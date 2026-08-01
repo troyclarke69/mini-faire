@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mini-faire.local/contracts/order_created.schema.json",
+  "title": "OrderCreatedEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "event_type", "event_ts", "order_id", "retailer_id", "product_id", "quantity", "gross_amount"],
+  "properties": {
+    "event_id": {"type": "string", "pattern": "^evt_[0-9]+$"},
+    "event_type": {"type": "string", "const": "order_created"},
+    "event_ts": {"type": "string", "format": "date-time"},
+    "order_id": {"type": "string", "pattern": "^ord_[0-9]+$"},
+    "retailer_id": {"type": "string", "pattern": "^ret_[0-9]+$"},
+    "product_id": {"type": "string", "pattern": "^prd_[0-9]+$"},
+    "quantity": {"type": "integer", "minimum": 1},
+    "gross_amount": {"type": "number", "minimum": 0}
+  }
+}
+

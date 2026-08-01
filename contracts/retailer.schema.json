@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mini-faire.local/contracts/retailer.schema.json",
+  "title": "Retailer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["retailer_id", "name", "country", "category", "signup_date", "status"],
+  "properties": {
+    "retailer_id": {"type": "string", "pattern": "^ret_[0-9]+$"},
+    "name": {"type": "string", "minLength": 1},
+    "country": {"type": "string", "minLength": 2},
+    "category": {"type": "string", "minLength": 1},
+    "signup_date": {"type": "string", "format": "date"},
+    "status": {"type": "string", "enum": ["active", "paused", "churned"]}
+  }
+}
+

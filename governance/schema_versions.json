@@ -1,0 +1,7 @@
+{
+  "retailer": {"version": "1.0.0", "schema": "contracts/retailer.schema.json"},
+  "product": {"version": "1.0.0", "schema": "contracts/product.schema.json"},
+  "order": {"version": "1.0.0", "schema": "contracts/order.schema.json"},
+  "order_created": {"version": "1.0.0", "schema": "contracts/order_created.schema.json"}
+}
+
