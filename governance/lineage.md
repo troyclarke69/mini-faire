@@ -54,6 +54,10 @@ Static transformation lineage is encoded by repository SQL file names and the DA
 - `marts.fact_orders` -> `marts.metrics_order_profitability`
 - `marts.fact_orders` -> `marts.compute_retailer_health`
 - `marts.fact_orders_events` -> `marts.compute_event_microbatch_summary`
+- `marts.dim_product` and `marts.fact_orders` -> `marts.compute_product_reorder_risk`
+- `marts.dim_product` and `marts.fact_orders` -> `marts.compute_brand_contribution`
+- `marts.dim_retailer` and `marts.fact_orders` -> `marts.compute_retailer_cohort_retention`
+- `marts.fact_orders_events` -> `marts.compute_event_lag_summary`
 
 ## End-To-End Flow
 
@@ -95,6 +99,8 @@ flowchart LR
 -> `marts.metrics_retailer_daily`
 -> `marts.metrics_order_profitability`
 -> `marts.compute_retailer_health`
+-> `marts.compute_product_reorder_risk`
+-> `marts.compute_brand_contribution`
 
 ## Event Micro-Batch Lineage
 
@@ -104,6 +110,7 @@ flowchart LR
 -> `staging.stg_order_created_events`
 -> `marts.fact_orders_events`
 -> `marts.compute_event_microbatch_summary`
+-> `marts.compute_event_lag_summary`
 
 ## Quarantine Handling
 

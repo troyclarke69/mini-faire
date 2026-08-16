@@ -5,10 +5,17 @@ Mini Faire is a compact retail marketplace analytics platform demo. It shows the
 ## Quick Start
 
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
 .\.venv\Scripts\python.exe scripts\run_demo.py
+
+* Should see:
+Batch ingestion runs: 3
+Event ingestion runs: 1
+DuckDB warehouse: C:\Projects\mini-faire\data\warehouse\mini_faire.duckdb
 ```
+
+Python 3.10-3.12 is recommended on Windows. Python 3.13 can install a DuckDB package with a mismatched compiled extension, which appears as `ModuleNotFoundError: No module named '_duckdb'`.
 
 The demo creates `data/warehouse/mini_faire.duckdb`, writes validated raw records under `data/raw/`, loads staging tables, builds dimensions/facts, and refreshes metric views.
 
@@ -19,6 +26,21 @@ Run the API after the demo:
 ```
 
 Then open `http://127.0.0.1:8000/metrics/retailer-daily`.
+
+# Endpoints
+- `http://127.0.0.1:8000/docs`
+- `http://127.0.0.1:8000/health`
+- `http://127.0.0.1:8000/metrics/retailer-daily`
+- `http://127.0.0.1:8000/metrics/product-velocity`
+- `http://127.0.0.1:8000/metrics/order-profitability`
+
+/compute endpoints:
+- `http://127.0.0.1:8000/compute/retailer-health`
+- `http://127.0.0.1:8000/compute/product-reorder-risk`
+- `http://127.0.0.1:8000/compute/brand-contribution`
+- `http://127.0.0.1:8000/compute/retailer-cohort-retention`
+- `http://127.0.0.1:8000/compute/event-lag-summary`
+- `http://127.0.0.1:8000/compute/model-runs`
 
 ## Architecture
 
@@ -43,6 +65,7 @@ flowchart LR
 - `ingestion/`: validation, quarantine, metadata, and loading helpers.
 - `warehouse/duckdb/`: initialization, staging, warehouse, and metric SQL.
 - `compute/polars/`: distributed-compute-style transforms using Polars.
+- `POLARS.md`: compute-layer design, current Polars transforms, and extension guide.
 - `orchestration/`: Prefect flows and Airflow DAG examples.
 - `governance/`: lineage and metadata schema documentation.
 - `api/`: optional metric exposure through FastAPI.

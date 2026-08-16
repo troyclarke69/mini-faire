@@ -1,24 +1,23 @@
 from __future__ import annotations
 
 import polars as pl
-import duckdb
 
+from compute.polars.duckdb_frame import read_duckdb_frame
 from ingestion.paths import DUCKDB_PATH
 
 
 def order_health_frame(db_path=DUCKDB_PATH) -> pl.DataFrame:
-    with duckdb.connect(str(db_path), read_only=True) as con:
-        result = con.execute(
-            """
-            select
-              retailer_id,
-              net_amount,
-              estimated_profit,
-              cast(order_ts as timestamp) as order_ts
-            from marts.fact_orders
-            """
-        )
-        orders = pl.DataFrame(result.fetchall(), schema=[col[0] for col in result.description], orient="row")
+    orders = read_duckdb_frame(
+        """
+        select
+          retailer_id,
+          net_amount,
+          estimated_profit,
+          cast(order_ts as timestamp) as order_ts
+        from marts.fact_orders
+        """,
+        db_path,
+    )
     return (
         orders.group_by("retailer_id")
         .agg(

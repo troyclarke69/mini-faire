@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-from compute.polars.compute_metrics import persist_compute_metrics
-from ingestion.batch_ingestion import ingest_all_batches
-from ingestion.event_ingestion import ingest_all_events
-from ingestion.load_duckdb import rebuild_warehouse
-from ingestion.paths import DUCKDB_PATH
+from preflight import run_preflight
 
 
 def main() -> None:
+    run_preflight()
+
+    from compute.polars.compute_metrics import persist_compute_metrics
+    from ingestion.batch_ingestion import ingest_all_batches
+    from ingestion.event_ingestion import ingest_all_events
+    from ingestion.load_duckdb import rebuild_warehouse
+    from ingestion.paths import DUCKDB_PATH
+
     batch_runs = ingest_all_batches()
     event_runs = ingest_all_events()
     rebuild_warehouse()
@@ -20,4 +24,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

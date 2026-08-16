@@ -1,24 +1,23 @@
 from __future__ import annotations
 
 import polars as pl
-import duckdb
 
+from compute.polars.duckdb_frame import read_duckdb_frame
 from ingestion.paths import DUCKDB_PATH
 
 
 def event_microbatch_summary(db_path=DUCKDB_PATH) -> pl.DataFrame:
-    with duckdb.connect(str(db_path), read_only=True) as con:
-        result = con.execute(
-            """
-            select
-              event_type,
-              cast(event_ts as timestamp) as event_ts,
-              gross_amount,
-              quantity
-            from marts.fact_orders_events
-            """
-        )
-        events = pl.DataFrame(result.fetchall(), schema=[col[0] for col in result.description], orient="row")
+    events = read_duckdb_frame(
+        """
+        select
+          event_type,
+          cast(event_ts as timestamp) as event_ts,
+          gross_amount,
+          quantity
+        from marts.fact_orders_events
+        """,
+        db_path,
+    )
     return (
         events.with_columns(pl.col("event_ts").dt.truncate("5m").alias("microbatch_window"))
         .group_by("microbatch_window", "event_type")
