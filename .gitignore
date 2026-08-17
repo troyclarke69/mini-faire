@@ -9,3 +9,7 @@ pytest-cache-files-*/
 *.duckdb.wal
 data/raw/
 data/warehouse/
+
+node_modules
+.next/
+.env

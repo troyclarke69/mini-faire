@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+body {
+  min-height: 100vh;
+}
+
+@layer components {
+  .panel {
+    @apply rounded-lg border border-slate-200 bg-white shadow-panel dark:border-slate-800 dark:bg-slate-950;
+  }
+
+  .table-head {
+    @apply bg-slate-100 text-left text-xs font-semibold uppercase tracking-normal text-slate-600 dark:bg-slate-900 dark:text-slate-400;
+  }
+
+  .table-cell {
+    @apply border-t border-slate-200 px-3 py-2 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-300;
+  }
+}
+

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import duckdb
 from fastapi import FastAPI, HTTPException
 
-from ingestion.paths import DUCKDB_PATH
+from ingestion.paths import DUCKDB_PATH, RAW_DIR
 
 
 app = FastAPI(title="Mini Faire Metrics API", version="0.1.0")
@@ -86,3 +88,53 @@ def event_lag_summary() -> list[dict]:
 @app.get("/compute/model-runs")
 def compute_model_runs() -> list[dict]:
     return query("select * from marts.compute_model_runs order by computed_at desc")
+
+
+@app.get("/metadata/ingestion-runs")
+def ingestion_runs() -> list[dict]:
+    return query("select * from ingestion_runs order by completed_at desc")
+
+
+@app.get("/metadata/lineage-edges")
+def lineage_edges() -> list[dict]:
+    return query("select * from lineage_edges order by created_at desc, run_id")
+
+
+@app.get("/metadata/elt-model-runs")
+def elt_model_runs() -> list[dict]:
+    return query("select * from elt_model_runs order by completed_at desc")
+
+
+@app.get("/metadata/quarantine-records")
+def quarantine_records() -> list[dict]:
+    records: list[dict] = []
+    for path in RAW_DIR.glob("**/quarantine/*.json"):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        for item in payload:
+            records.append(
+                {
+                    "path": str(path),
+                    "run_id": run_id_from_quarantine_path(path),
+                    "entity": entity_from_quarantine_path(path),
+                    "record_index": item.get("record_index"),
+                    "record": item.get("record"),
+                    "errors": item.get("errors", []),
+                }
+            )
+    return records
+
+
+def run_id_from_quarantine_path(path: Path) -> str:
+    try:
+        return path.parents[1].name
+    except IndexError:
+        return "unknown"
+
+
+def entity_from_quarantine_path(path: Path) -> str:
+    parts = path.parts
+    if "batch" in parts:
+        return parts[parts.index("batch") + 1]
+    if "events" in parts:
+        return parts[parts.index("events") + 1]
+    return "unknown"

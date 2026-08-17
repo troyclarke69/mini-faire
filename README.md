@@ -56,7 +56,20 @@ flowchart LR
   warehouse --> metrics["Semantic metric views"]
   warehouse --> polars["Polars compute"]
   metrics --> api["FastAPI metrics API"]
+  api --> frontend["Next.js frontend"]
 ```
+
+## Frontend
+
+`frontend/` is a Next.js 14 (App Router) UI that visualizes ingestion metadata, lineage, ELT/Polars compute runs, and semantic metrics served by `api/metrics_api.py`. With the demo data pipeline run once and the API running (see Quick Start above):
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:3000`. See `frontend/README.md` for configuration, project structure, and the Server/Client Component rendering strategy.
 
 ## Repository Map
 
@@ -69,6 +82,7 @@ flowchart LR
 - `orchestration/`: Prefect flows and Airflow DAG examples.
 - `governance/`: lineage and metadata schema documentation.
 - `api/`: optional metric exposure through FastAPI.
+- `frontend/`: Next.js analytics UI (see `frontend/README.md`).
 - `scripts/run_demo.py`: one-command local pipeline runner.
 
 ## Reliability Notes
