@@ -80,7 +80,7 @@ All requests go through `lib/api.ts`. Endpoints (see the backend's `README.md`/`
 | Area | Endpoints |
 | --- | --- |
 | Metrics | `/metrics/retailer-daily`, `/metrics/product-velocity`, `/metrics/order-profitability` |
-| Compute | `/compute/retailer-health`, `/compute/product-reorder-risk`, `/compute/brand-contribution`, `/compute/retailer-cohort-retention`, `/compute/event-lag-summary`, `/compute/model-runs` |
+| Compute | `/compute/retailer-health`, `/compute/product-reorder-risk`, `/compute/brand-contribution`, `/compute/retailer-cohort-retention`, `/compute/event-lag-summary`, `/compute/inventory-movement`, `/compute/order-lifecycle`, `/compute/model-runs` |
 | Governance | `/metadata/ingestion-runs`, `/metadata/lineage-edges`, `/metadata/elt-model-runs`, `/metadata/quarantine-records` |
 | Health | `/health` |
 

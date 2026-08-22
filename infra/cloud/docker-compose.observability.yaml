@@ -1,0 +1,95 @@
+# Observability stack (PHASE7-DEPLOYMENT.md Section 8): Prometheus + Grafana
+# + Loki + Promtail + Jaeger, alongside docker-compose.cloud.yaml's
+# application services. Run both together so Prometheus/Promtail can reach
+# `backend` by its compose service name and Jaeger can receive this repo's
+# OTLP spans:
+#
+#   docker compose \
+#     -f infra/cloud/docker-compose.cloud.yaml \
+#     -f infra/cloud/docker-compose.observability.yaml \
+#     up
+#
+# (Two `-f` flags merge into one compose project - `name: mini-faire-cloud`
+# in docker-compose.cloud.yaml applies to both, so they share one Docker
+# network without an explicit `networks:` block here.)
+#
+# Kept as a separate file rather than folded into docker-compose.cloud.yaml
+# because the observability stack is optional - a deployment can run the
+# application services alone (Grafana/Loki/Jaeger cost real resources on a
+# small Fly/Render instance and aren't needed for every environment, e.g. a
+# quick demo deploy) and observability/tracing.py/metrics.py both degrade
+# gracefully with nothing on the other end (NoOpSpan fallback; Prometheus
+# simply has nothing to scrape).
+#
+# Not run in the sandbox that authored this file (no Docker daemon
+# available there - see docker-compose.cloud.yaml's own header) - validated
+# with `docker compose -f infra/cloud/docker-compose.cloud.yaml
+# -f infra/cloud/docker-compose.observability.yaml config`.
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.9.8
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./observability/promtail-config.yml:/etc/promtail/config.yml:ro
+      # Read-only access to every container's Docker-managed JSON logs, and
+      # the socket promtail's docker_sd_configs needs to discover containers
+      # (see promtail-config.yml's header) - standard Promtail/docker-compose
+      # pairing, not specific to this repo.
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.58
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4317:4317"    # OTLP gRPC - observability/tracing.py's init_tracing() default endpoint
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports:
+      - "3001:3000"  # host 3001 - the frontend already owns host 3000 in docker-compose.cloud.yaml
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards/json:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  loki-data:
+  grafana-data:

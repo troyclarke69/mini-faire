@@ -3,6 +3,7 @@ import { GMVChart } from "@/components/charts/GMVChart";
 import { ProfitabilityChart } from "@/components/charts/ProfitabilityChart";
 import { VelocityChart } from "@/components/charts/VelocityChart";
 import { KpiCard } from "@/components/KpiCard";
+import { LiveMetaBar } from "@/components/LiveMetaBar";
 import { PageHeader } from "@/components/PageHeader";
 import { IngestionRunsTable } from "@/components/tables/IngestionRunsTable";
 import { ModelRunsTable } from "@/components/tables/ModelRunsTable";
@@ -33,6 +34,7 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Overview Dashboard" subtitle="Marketplace health across ingestion, warehouse metrics, and Polars compute outputs." />
+      <LiveMetaBar />
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard label="Total GMV" value={money(gmv)} detail="Validated orders" />
         <KpiCard label="Total Orders" value={number(orders)} detail="Last loaded snapshot" />

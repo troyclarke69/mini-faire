@@ -1,0 +1,39 @@
+# Orchestration flows (PHASE7-DEPLOYMENT.md Section 1) - synthetic_flow.py,
+# mongo_flow.py, realtime_flow.py all live behind one image, since they share
+# the exact same dependency surface (this repo's base [dev]-free
+# dependencies plus [mongo] - realtime_flow.py can watch Mongo per its
+# --no-mongo flag). Which flow a given container runs is an entrypoint
+# argument, not baked into the image, so one image serves every flow in
+# docker-compose.cloud.yaml rather than three near-duplicate Dockerfiles.
+#
+# Same build-untested caveat as Dockerfile.backend/Dockerfile.frontend (no
+# Docker daemon in the authoring sandbox).
+
+FROM python:3.12-slim AS base
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY alerts/ ./alerts/
+COPY anomalies/ ./anomalies/
+COPY compute/ ./compute/
+COPY config/ ./config/
+COPY contracts/ ./contracts/
+COPY ingestion/ ./ingestion/
+COPY monitoring/ ./monitoring/
+COPY multi_tenant/ ./multi_tenant/
+COPY orchestration/ ./orchestration/
+COPY storage/ ./storage/
+COPY synthetic/ ./synthetic/
+COPY warehouse/ ./warehouse/
+
+RUN pip install --no-cache-dir -e ".[mongo]"
+RUN mkdir -p /app/data
+
+ENV PYTHONUNBUFFERED=1
+
+# Overridden per-service in docker-compose.cloud.yaml, e.g.:
+#   command: ["-m", "orchestration.realtime_flow"]
+#   command: ["-m", "orchestration.synthetic_flow"]
+#   command: ["-m", "orchestration.mongo_flow"]
+ENTRYPOINT ["python"]
+CMD ["-m", "orchestration.synthetic_flow"]

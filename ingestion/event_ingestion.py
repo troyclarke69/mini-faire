@@ -14,7 +14,7 @@ from ingestion.metadata import (
 )
 from ingestion.paths import DATA_DIR, RAW_DIR
 from ingestion.quarantine import write_valid_and_quarantine
-from ingestion.validate import load_json_records, validate_records
+from ingestion.validate import CONTRACT_BY_ENTITY, load_json_records, validate_records
 
 
 def event_run_id(event_type: str, path: Path) -> str:
@@ -50,7 +50,7 @@ def ingest_event_file(event_type: str, path: Path, run_id: str | None = None) ->
         source_path=str(path),
         source_content_sha256=file_sha256(path),
         partition_path=str(partition),
-        contract_name=f"{event_type}.schema.json",
+        contract_name=CONTRACT_BY_ENTITY[event_type],
         valid_count=len(result.valid_records),
         invalid_count=len(result.invalid_records),
         schema_version="2020-12",
@@ -85,7 +85,7 @@ def ingest_event_file(event_type: str, path: Path, run_id: str | None = None) ->
             LineageEdge(
                 run_id=run_id,
                 source_node=str(valid_path),
-                target_node="raw.raw_order_created_events",
+                target_node=f"raw.raw_{event_type}_events",
                 edge_type="loaded_to_raw_table",
                 entity=event_type,
                 created_at=completed_at,

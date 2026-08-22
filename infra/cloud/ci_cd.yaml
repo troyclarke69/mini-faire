@@ -1,0 +1,156 @@
+# CI/CD pipeline (PHASE7-DEPLOYMENT.md Section 9) - a GitHub Actions
+# workflow. To activate it, copy this file to `.github/workflows/ci_cd.yaml`
+# (kept here in infra/cloud/ alongside this phase's other deployment
+# manifests rather than under .github/ directly, matching where
+# docker-compose.cloud.yaml/deploy.sh/the Terraform modules all live - GitHub
+# only picks up workflows from .github/workflows/, so this copy step is
+# required, not optional, before pushes actually trigger it).
+#
+# Three jobs, each gating the next: lint_and_test -> build_images ->
+# deploy (deploy only runs on a push to main, and only after both prior jobs
+# succeed - a PR gets lint/test/build feedback without ever deploying).
+# `infra/cloud/deploy.sh docker-compose` is what the deploy job actually
+# calls (same script a human would run locally) rather than duplicating its
+# steps inline - one place defines "how mini-faire deploys," not two that
+# can drift apart.
+#
+# Not run against a live GitHub Actions runner in the sandbox that authored
+# this file (no network access to actions.github.com/hub here, and no `gh
+# workflow run` target repo to dispatch to) - validated with
+# `yaml.safe_load`, and every action reference below (`actions/checkout@v4`,
+# `actions/setup-python@v5`, `actions/setup-node@v4`,
+# `docker/setup-buildx-action@v3`, `docker/build-push-action@v6`) is a real,
+# current action pinned to a real major version tag, not invented.
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint_and_test:
+    name: Lint + test (backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      # dev: pytest/ruff. ml: numpy/scikit-learn, imported at module level by
+      # ml/models/*.py (PHASE6-ML.md's "hard requirement, not optional
+      # enhancement" - see pyproject.toml's `ml` extra comment) - installed
+      # here so those modules (and anything importing them, transitively
+      # including api/ml_api.py) actually import cleanly under test, not
+      # just under their own guarded-ImportError fallback path.
+      - name: Install dependencies
+        run: pip install -e ".[dev,ml]"
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: Pytest
+        run: |
+          if [ -d tests ]; then
+            python -m pytest -q
+          else
+            echo "no tests/ directory in this checkout - skipping"
+          fi
+
+  lint_and_test_frontend:
+    name: Lint + typecheck (frontend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint --if-present
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck --if-present
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+  build_images:
+    name: Build Docker images
+    runs-on: ubuntu-latest
+    needs: [lint_and_test, lint_and_test_frontend]
+    strategy:
+      matrix:
+        image:
+          - { name: backend, dockerfile: infra/cloud/Dockerfile.backend }
+          - { name: frontend, dockerfile: infra/cloud/Dockerfile.frontend }
+          - { name: orchestration, dockerfile: infra/cloud/Dockerfile.orchestration }
+          - { name: streaming, dockerfile: infra/cloud/Dockerfile.streaming }
+          - { name: ml, dockerfile: infra/cloud/Dockerfile.ml }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Build-only verification on every push/PR (catches a broken
+      # Dockerfile before it reaches deploy) - push:true and registry auth
+      # only happen in the deploy job below, scoped to main.
+      - name: Build ${{ matrix.image.name }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.image.dockerfile }}
+          push: false
+          tags: mini-faire-${{ matrix.image.name }}:ci
+
+  deploy:
+    name: Deploy (docker-compose target)
+    runs-on: ubuntu-latest
+    needs: [build_images]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -e ".[dev,cloud]"
+
+      # SKIP_TESTS=true - lint_and_test already gated this job via `needs:`,
+      # no reason to run ruff/pytest a second time. The target platform
+      # (docker-compose here; swap for `fly`/`render`/`azure` - or make it a
+      # workflow_dispatch input - once one is actually provisioned via the
+      # Terraform modules under infra/cloud/terraform/) and every secret
+      # deploy.sh reads (JWT_SECRET_KEY, POSTGRES_PASSWORD, MONGO_PASSWORD,
+      # SLACK_WEBHOOK_URL) come from this environment's GitHub Actions
+      # secrets, never committed here.
+      - name: Deploy
+        env:
+          SKIP_TESTS: "true"
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: infra/cloud/deploy.sh docker-compose

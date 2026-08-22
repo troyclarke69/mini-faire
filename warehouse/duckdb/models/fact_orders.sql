@@ -46,7 +46,18 @@ where o.order_ts >= coalesce(
       and status = 'success'
   ),
   timestamp '1900-01-01'
-);
+)
+-- The watermark filter above is a reprocessing-volume optimization, not a
+-- correctness gate: staging is fully rebuilt from raw every run anyway (see
+-- README's Incremental ELT section), so nothing is saved by dropping a row
+-- outright. Without this OR clause, an order whose order_ts falls *before*
+-- the current watermark - e.g. a Mongo pull or synthetic backfill landing
+-- after a later-dated batch/event run already advanced the watermark past
+-- it - would never make it into delta_fact_orders and would silently never
+-- appear in marts.fact_orders, even though it passed validation. Any
+-- business key not yet present in the target table is always included,
+-- regardless of how "late" it arrived relative to prior runs.
+or not exists (select 1 from marts.fact_orders f where f.order_id = o.order_id);
 
 delete from marts.fact_orders
 where order_id in (select order_id from delta_fact_orders);

@@ -1,4 +1,5 @@
 import { ProductFilterPanel } from "@/components/filters/ProductFilterPanel";
+import { LiveMetaBar } from "@/components/LiveMetaBar";
 import { PageHeader } from "@/components/PageHeader";
 import { ProductVelocityTable } from "@/components/tables/ProductVelocityTable";
 import { TablePanel } from "@/components/TablePanel";
@@ -10,6 +11,7 @@ export default async function ProductsPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Products" subtitle="Product velocity paired with Polars reorder-risk scoring." />
+      <LiveMetaBar />
       <ProductFilterPanel rows={velocity} />
       <ProductVelocityTable />
       <TablePanel title="Product Reorder Risk">

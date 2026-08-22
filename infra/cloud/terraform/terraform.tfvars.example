@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars (gitignored - never commit real values) and fill
+# in before `terraform plan`/`terraform apply`.
+
+aws_region = "us-east-1"
+name       = "mini-faire-prod"
+
+# Generate with e.g. `openssl rand -base64 48` - must match the value
+# deployed as the JWT_SECRET_KEY env var (config/auth.yaml reads it there).
+jwt_secret = "REPLACE_ME"
+
+enable_postgres    = false
+enable_mongo_atlas = false
+# mongo_atlas_org_id = "REPLACE_ME"  # required if enable_mongo_atlas = true

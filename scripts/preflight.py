@@ -19,7 +19,7 @@ def assert_duckdb_extension_matches_python() -> None:
     if spec is None or spec.origin is None:
         raise SystemExit(
             "DuckDB is not installed in this environment. Run: "
-            '.\\.venv\\Scripts\\python.exe -m pip install -e ".[dev]"'
+            '.\\.venv\\Scripts\\python.exe -m pip install -e ".[dev,mongo]"'
         )
 
     site_packages = Path(spec.origin).resolve().parents[1]

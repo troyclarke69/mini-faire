@@ -1,3 +1,4 @@
+import { LiveMetaBar } from "@/components/LiveMetaBar";
 import { PageHeader } from "@/components/PageHeader";
 import { TablePanel } from "@/components/TablePanel";
 import { api, money, number, percent } from "@/lib/api";
@@ -14,6 +15,7 @@ export default async function ComputePage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Polars Compute" subtitle="Derived feature-style outputs produced by the Polars compute layer." />
+      <LiveMetaBar />
       <TablePanel title="Retailer Health Scores">
         <table className="min-w-full">
           <thead className="table-head">

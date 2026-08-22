@@ -2,6 +2,14 @@ create schema if not exists raw;
 create schema if not exists staging;
 create schema if not exists marts;
 create schema if not exists governance;
+-- Phase 5: anomaly_events lives in its own schema; system_metrics, schema_drift_events,
+-- and alert_events share `monitoring`. Declared here for a clean bootstrap, but each
+-- table is also created defensively (create schema/table if not exists) by its owning
+-- module (anomalies/detector.py, monitoring/metrics.py, monitoring/schema_drift.py,
+-- alerts/dispatcher.py) - same pattern as marts.compute_model_runs, which is declared
+-- only in compute/polars/compute_metrics.py, not here.
+create schema if not exists anomalies;
+create schema if not exists monitoring;
 
 create table if not exists ingestion_runs (
   run_id varchar primary key,

@@ -1,0 +1,121 @@
+# MongoDB upstream source configuration (PHASE3-DATA-LOAD.md Section 2).
+#
+# The connection string's password is NEVER stored here or anywhere else in the
+# repo. `mongo_uri_template` below uses a `${MONGO_PASSWORD}` placeholder that
+# ingestion/mongo_ingest.py substitutes at runtime from the MONGO_PASSWORD
+# environment variable. Set it before running, e.g. (PowerShell):
+#   $env:MONGO_PASSWORD = "your-atlas-password"
+# or (bash):
+#   export MONGO_PASSWORD="your-atlas-password"
+# If MONGO_PASSWORD is unset, ingestion/mongo_ingest.py raises immediately
+# rather than connecting with a blank/placeholder credential.
+# mongodb+srv://<db_username>:<db_password>@cluster0.orxh2.gcp.mongodb.net/?appName=Cluster0
+
+mongo_user: smedj
+mongo_host: cluster0.orxh2.gcp.mongodb.net
+mongo_app_name: Cluster0
+mongo_uri_template: "mongodb+srv://${MONGO_USER}:${MONGO_PASSWORD}@${MONGO_HOST}/?appName=${MONGO_APP_NAME}"
+database: rmap
+
+# Pull page size per collection, per run.
+batch_size: 500
+
+# Field used to only pull documents that are new/changed since the last run.
+# Every synthetic/generated document written by synthetic/write_mongo.py (and
+# any document a human inserts through Atlas) is expected to carry this field.
+watermark_field: updated_at
+
+# State file tracking the last-seen watermark per collection so repeated runs
+# are incremental rather than re-pulling the full collection every time.
+watermark_state_path: data/raw/_mongo_watermarks.json
+
+# MongoDB collection -> Mini Faire entity mapping (PHASE3-DATA-LOAD.md Section 2C).
+# `kind` selects the JSONSchema contract family (batch entity vs. event type)
+# used by ingestion/validate.py's CONTRACT_BY_ENTITY.
+collections:
+  - collection: retailers
+    entity: retailers
+    kind: batch
+  - collection: products
+    entity: products
+    kind: batch
+  - collection: orders
+    entity: orders
+    kind: batch
+  - collection: order_created
+    entity: order_created
+    kind: event
+  - collection: order_paid
+    entity: order_paid
+    kind: event
+  - collection: orders_shipped
+    entity: orders_shipped
+    kind: event
+  - collection: inventory_updated
+    entity: inventory_updated
+    kind: event
+  - collection: price_changed
+    entity: price_changed
+    kind: event
+    # Added for PHASE4-REALTIME&STREAMING.md: Phase 3's synthetic/write_mongo.py
+    # deliberately left price_changed unmapped (no upstream Mongo collection
+    # existed for it). Phase 4's stream_generator.py and change-stream watch
+    # list both need every streamed event type to be Mongo-eligible, so this
+    # closes that gap. synthetic/write_mongo.py's MONGO_ELIGIBLE_ENTITIES and
+    # ingestion/load_duckdb.py's RAW_TABLE_SOURCES were updated to match.
+
+# Optional filter applied on top of the watermark filter, per collection. Empty
+# by default - populated only if a collection needs a narrower pull (e.g. a
+# specific retailer or status).
+filters: {}
+
+# How often orchestration/mongo_flow.py is intended to run under an external
+# scheduler (informational only - this repo's demo triggers it manually via
+# scripts/run_demo.py or `python -m orchestration.mongo_flow`).
+schedule: "*/15 * * * *"
+
+# Change-stream ingestion (ingestion/mongo_ingest_change_stream.py) treats every
+# insert/update on these collections as a live event and routes it through the
+# same entity mapping above.
+change_stream:
+  enabled_collections:
+    - order_created
+    - order_paid
+    - orders_shipped
+    - inventory_updated
+  max_seconds: 60
+
+# Real-time change-stream watch config (PHASE4-REALTIME&STREAMING.md Section 2)
+# for the new ingestion/mongo_change_stream.py module. Deliberately a
+# separate, plural-named block from `change_stream:` above (Phase 3's
+# simpler, optional ingestion/mongo_ingest_change_stream.py) rather than a
+# replacement of it - both modules remain usable independently.
+#
+# PHASE4-REALTIME&STREAMING.md's example lists abstract category names
+# (orders, events, inventory, pricing). This repo's real Mongo collections
+# are more granular (see `collections:` above), so the list below names the
+# actual collections those categories map onto:
+#   orders   -> orders
+#   events   -> order_created, order_paid, orders_shipped
+#   inventory -> inventory_updated
+#   pricing  -> price_changed
+# retailers/products are catalog data, not streaming events, so they are
+# intentionally omitted here (still covered by ingestion/mongo_ingest.py's
+# polling pull and by change_stream.enabled_collections above if needed).
+change_streams:
+  enabled: true
+  collections:
+    - orders
+    - order_created
+    - order_paid
+    - orders_shipped
+    - inventory_updated
+    - price_changed
+  # Resume-token checkpoint file so a restart continues watching from where
+  # it left off instead of re-processing (or missing) events.
+  resume_token_state_path: data/raw/_mongo_change_stream_resume_tokens.json
+  # Backoff/retry when a change stream errors (e.g. resume token invalidated,
+  # transient network blip). Exponential with a cap.
+  backoff_initial_seconds: 1.0
+  backoff_max_seconds: 30.0
+  backoff_multiplier: 2.0

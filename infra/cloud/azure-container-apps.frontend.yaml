@@ -1,0 +1,33 @@
+# Azure Container Apps deployment manifest for the Next.js frontend (see
+# azure-container-apps.backend.yaml's header for deploy command shape and
+# the reused environment/registry). The frontend has no shared-file
+# constraint (it's stateless), so it scales normally.
+
+properties:
+  managedEnvironmentId: <container-apps-environment-resource-id>
+  configuration:
+    ingress:
+      external: true
+      targetPort: 3000
+      transport: auto
+    registries:
+      - server: <acr-name>.azurecr.io
+        identity: system
+  template:
+    containers:
+      - name: frontend
+        image: <acr-name>.azurecr.io/mini-faire-frontend:latest
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+        env:
+          - name: NEXT_PUBLIC_API_URL
+            value: https://mini-faire-backend.<region>.azurecontainerapps.io
+    scale:
+      minReplicas: 0
+      maxReplicas: 3
+      rules:
+        - name: http-scale
+          http:
+            metadata:
+              concurrentRequests: "50"

@@ -1,0 +1,125 @@
+# Cloud deployment compose file (PHASE7-DEPLOYMENT.md Section 1/10:
+# "Everything must run via docker-compose.cloud.yaml, Terraform modules, CI/CD
+# pipeline"). Run from the repo root: `docker compose -f
+# infra/cloud/docker-compose.cloud.yaml up`.
+#
+# Not run in the sandbox that authored this file (no Docker daemon
+# available there). Written to match the actual Dockerfiles/entrypoints in
+# this directory and this repo's actual services (README.md's process list),
+# not a generic template.
+#
+# `data-warehouse` is a named volume holding the DuckDB file (data/warehouse/
+# mini_faire.duckdb) plus data/raw and data/ml_models - every service below
+# mounts it at /app/data so they share one warehouse, exactly like every
+# process in this repo already does when run locally against the same
+# checkout. This is DuckDB's actual production posture in this compose file:
+# single-writer, shared-file, same as local dev - config/database.yaml's
+# postgres/mongo backends are how a deployment moves metadata/events off of
+# that shared file, not something this compose file does by default.
+
+name: mini-faire-cloud
+
+x-common-env: &common-env
+  MINI_FAIRE_DATA_DIR: /app/data
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set a real JWT secret before deploying - see config/auth.yaml}
+  MONGO_PASSWORD: ${MONGO_PASSWORD:-}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+  SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+  # observability/tracing.py's init_tracing() OTLP export target - defaults
+  # to the `jaeger` service name from docker-compose.observability.yaml
+  # (harmless if that file isn't included in this `docker compose up`: with
+  # nothing listening, the OTel SDK's background export thread just fails
+  # silently, and if the `[observability]` extra isn't installed at all,
+  # init_tracing() never gets far enough to use this value - see that
+  # module's docstring).
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4317}
+
+services:
+  backend:
+    build:
+      context: ../..
+      dockerfile: infra/cloud/Dockerfile.backend
+    ports:
+      - "8000:8000"
+    environment: *common-env
+    volumes:
+      - data-warehouse:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: infra/cloud/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Warehouse rebuild + Polars compute on a debounced watch loop - see
+  # README.md's "Real-time streaming" section. Also the one process that
+  # watches Mongo for change-stream events unless MONGO_ENABLED=false.
+  realtime-flow:
+    build:
+      context: ../..
+      dockerfile: infra/cloud/Dockerfile.orchestration
+    command: ["-m", "orchestration.realtime_flow"]
+    environment: *common-env
+    volumes:
+      - data-warehouse:/app/data
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Synthetic event generator - the demo's data source when no real upstream
+  # is wired up. --no-local-ingest: realtime-flow above is the sole DuckDB
+  # writer (README.md's "Every write to mini_faire.duckdb briefly locks the
+  # file" section explains why that pairing is the safest one).
+  stream-generator:
+    build:
+      context: ../..
+      dockerfile: infra/cloud/Dockerfile.streaming
+    command: ["synthetic/stream_generator.py", "--no-local-ingest"]
+    environment: *common-env
+    volumes:
+      - data-warehouse:/app/data
+    depends_on:
+      - realtime-flow
+    restart: unless-stopped
+
+  # ML training - scheduled, not long-running (see infra/cloud/ci_cd.yaml /
+  # a Terraform-provisioned scheduled task for how this actually gets
+  # invoked in a cloud deployment). Included here with `profiles: [ml]` so
+  # `docker compose up` doesn't start it by default - a training run is
+  # normally kicked off on a schedule or manually
+  # (`docker compose --profile ml run ml-train`), not left running.
+  ml-train:
+    build:
+      context: ../..
+      dockerfile: infra/cloud/Dockerfile.ml
+    command: ["orchestration/ml_training_flow.py"]
+    environment: *common-env
+    volumes:
+      - data-warehouse:/app/data
+    profiles: ["ml"]
+
+  ml-infer:
+    build:
+      context: ../..
+      dockerfile: infra/cloud/Dockerfile.ml
+    command: ["orchestration/ml_inference_flow.py"]
+    environment: *common-env
+    volumes:
+      - data-warehouse:/app/data
+    profiles: ["ml"]
+
+volumes:
+  data-warehouse:

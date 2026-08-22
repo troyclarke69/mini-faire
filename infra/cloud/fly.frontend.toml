@@ -1,0 +1,22 @@
+# Fly.io deployment manifest for the Next.js frontend (see fly.toml's header
+# for why this is a separate file - one Fly app per manifest). Deploy with
+# `fly deploy --config infra/cloud/fly.frontend.toml --dockerfile
+# infra/cloud/Dockerfile.frontend --build-arg
+# NEXT_PUBLIC_API_URL=https://mini-faire-backend.fly.dev`.
+
+app = "mini-faire-frontend"
+primary_region = "iad"
+
+[build]
+  dockerfile = "infra/cloud/Dockerfile.frontend"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

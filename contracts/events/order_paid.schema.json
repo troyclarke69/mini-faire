@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Order Paid Event",
+  "type": "object",
+  "properties": {
+    "event_id": { "type": "string" },
+    "event_type": { "type": "string", "enum": ["order_paid"] },
+    "order_id": { "type": "string" },
+    "amount": { "type": "number" },
+    "event_ts": { "type": "string", "format": "date-time" }
+  },
+  "required": ["event_id", "event_type", "order_id", "amount", "event_ts"]
+}

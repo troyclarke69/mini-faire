@@ -7,9 +7,43 @@ dependencies = [
   "duckdb>=1.0.0",
   "fastapi>=0.111.0",
   "jsonschema>=4.22.0",
+  # jsonschema's `format_checker=FormatChecker()` (used throughout
+  # ingestion/validate.py) only ever validates `"format": "date-time"` - the
+  # format every contract in this repo uses for event_ts/order_ts/etc. - if
+  # rfc3339-validator is importable; jsonschema conditionally registers that
+  # checker with a bare `with suppress(ImportError): from rfc3339_validator
+  # import validate_rfc3339`. Without it, a malformed timestamp silently
+  # passes validation instead of being quarantined - a pre-Phase-5 gap that
+  # became directly visible once monitoring/schema_drift.py (Section 4)
+  # needed `format` violations to actually be classifiable as
+  # timestamp_format_issue drift events.
+  "rfc3339-validator>=0.1.4",
   "polars>=1.0.0",
   "pydantic>=2.7.0",
-  "uvicorn>=0.30.0"
+  "uvicorn>=0.30.0",
+  # duckdb's Python client needs pytz to materialize TIMESTAMPTZ columns on
+  # fetch (ingestion_runs.started_at/completed_at, lineage_edges.created_at,
+  # elt_model_runs.*_at/high_watermark, compute_model_runs.computed_at).
+  # Without it, any query touching those columns raises
+  # `InvalidInputException: Required module 'pytz' failed to import` - which
+  # is exactly why /metadata/lineage-edges and /metadata/elt-model-runs (and
+  # /metadata/ingestion-runs) came back empty with no visible error: the
+  # frontend's api.ts fails soft on a non-OK response.
+  "pytz>=2024.1",
+  # config/synthetic.yaml and config/mongo.yaml are loaded with yaml.safe_load
+  # in orchestration/synthetic_flow.py, orchestration/mongo_flow.py,
+  # ingestion/mongo_ingest.py, ingestion/mongo_ingest_change_stream.py, and
+  # synthetic/generator.py, write_raw.py, write_mongo.py.
+  "pyyaml>=6.0",
+  # api/realtime_api.py's /realtime/ws endpoint (PHASE4-REALTIME&STREAMING.md
+  # Section 5) needs an ASGI WebSocket implementation. Plain `uvicorn` (unlike
+  # `uvicorn[standard]`) does NOT bundle one - without this, connecting to
+  # ws://.../realtime/ws fails at the server with
+  # `RuntimeError: No supported WebSocket library detected` (or the
+  # connection is refused/closed immediately with no clear client-side
+  # error), which is exactly the class of bug pytz/pyyaml were above: a real
+  # dependency that only surfaces once the code path that needs it runs.
+  "websockets>=12.0"
 ]
 
 [project.optional-dependencies]
@@ -21,6 +55,69 @@ orchestration = [
   "prefect>=2.19.0",
   "apache-airflow>=2.9.0"
 ]
+mongo = [
+  # config/mongo.yaml's connection string uses the mongodb+srv:// scheme,
+  # which requires dnspython for SRV/TXT record lookups - the [srv] extra
+  # pulls that in (plain `pymongo` alone will raise
+  # `pymongo.errors.ConfigurationError: The "dnspython" module must be
+  # installed to use mongodb+srv:// URIs` at connect time otherwise).
+  "pymongo[srv]>=4.7.0"
+]
+ml = [
+  # PHASE6-ML.md's hard requirements: every ml/models/*.py module raises a
+  # clear ImportError at import time (pointing back at this extra) if either
+  # is missing, since they're the documented default estimators for every
+  # model type (forecasting's RandomForestRegressor fallback, clustering's
+  # KMeans/DBSCAN/GMM, recommendations' cosine/NMF similarity, the anomaly
+  # classifier's RandomForestClassifier/GradientBoostingClassifier default)
+  # rather than optional enhancements - see ml/models/*.py's own try/except
+  # ImportError blocks and error messages, which all point back at this extra.
+  "numpy>=1.26.0",
+  "scikit-learn>=1.4.0"
+]
+ml-extra = [
+  # Optional upgrades layered on top of the `ml` extra's sklearn/numpy
+  # baseline, each guarded by its own try/except ImportError with a silent
+  # fallback to the default estimator when not installed (see each module's
+  # docstring): statsmodels' Holt-Winters (ml/models/forecasting.py, tried
+  # before the RandomForestRegressor default), and xgboost's XGBClassifier
+  # (ml/models/anomaly_classifier.py, tried before the RandomForestClassifier
+  # default unless gradient_boosting is explicitly configured). lightgbm and
+  # prophet are named as "such as" examples in PHASE6-ML.md's illustrative
+  # model list but have no wired-in code path in this repo - listed here as
+  # forward-compatible optional extras, not because anything imports them yet.
+  "statsmodels>=0.14.0",
+  "xgboost>=2.0.0",
+  "lightgbm>=4.3.0",
+  "prophet>=1.1.5"
+]
+observability = [
+  # PHASE7-DEPLOYMENT.md Section 8: observability/tracing.py's OpenTelemetry
+  # integration, guarded by its own try/except ImportError (see that
+  # module's docstring) exactly like storage/cloud_storage.py's cloud SDKs -
+  # observability/metrics.py and logging.py need nothing from this extra
+  # (hand-rolled Prometheus client, stdlib logging). Not installed in this
+  # session's sandbox (no network access to the package index here).
+  "opentelemetry-api>=1.24.0",
+  "opentelemetry-sdk>=1.24.0",
+  "opentelemetry-exporter-otlp-proto-grpc>=1.24.0"
+]
+cloud = [
+  # PHASE7-DEPLOYMENT.md Section 5/6: storage/cloud_storage.py's S3/Azure
+  # Blob/GCS backends and database/cloud_db.py's Postgres backend are each
+  # guarded by their own try/except ImportError (see those modules'
+  # docstrings) and only required when a tenant/deployment actually
+  # configures that backend - the default `local`/`duckdb` backends need
+  # none of these, matching this repo's "the demo runs with zero
+  # configuration" posture. Not installed in this session's sandbox (no
+  # network access to the package index here - see those modules'
+  # docstrings for what was and wasn't runnable against a live backend).
+  "boto3>=1.34.0",
+  "azure-storage-blob>=12.19.0",
+  "google-cloud-storage>=2.16.0",
+  "psycopg2-binary>=2.9.9",
+  "pymongo[srv]>=4.7.0"
+]
 
 [tool.ruff]
 line-length = 100
@@ -31,4 +128,16 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["api*", "compute*", "ingestion*", "orchestration*"]
+# alerts/anomalies/monitoring were a pre-existing gap from Phase 5 (this
+# demo runs everything via `python -m X` from the repo root, which doesn't
+# need setuptools package discovery, so the gap was harmless in practice but
+# incorrect); ml is Phase 6's new top-level package. Fixed and added
+# together rather than leaving the pre-existing gap for a future phase to
+# rediscover.
+include = [
+  "alerts*", "anomalies*", "api*", "compute*", "ingestion*", "ml*", "monitoring*", "orchestration*", "synthetic*",
+  # Phase 7 (PHASE7-DEPLOYMENT.md): multi_tenant/auth landed in task 60-61,
+  # storage/database/observability land later in this same phase - added
+  # together here rather than three more one-line follow-up edits.
+  "multi_tenant*", "auth*", "storage*", "database*", "observability*",
+]

@@ -14,7 +14,7 @@ from ingestion.metadata import (
 )
 from ingestion.paths import DATA_DIR, RAW_DIR
 from ingestion.quarantine import write_valid_and_quarantine
-from ingestion.validate import load_json_records, validate_records
+from ingestion.validate import CONTRACT_BY_ENTITY, load_json_records, validate_records
 
 
 BATCH_ENTITIES = ("retailers", "products", "orders")
@@ -53,7 +53,7 @@ def ingest_batch_file(entity: str, path: Path, run_id: str | None = None) -> Ing
         source_path=str(path),
         source_content_sha256=file_sha256(path),
         partition_path=str(partition),
-        contract_name=f"{entity.rstrip('s')}.schema.json",
+        contract_name=CONTRACT_BY_ENTITY[entity],
         valid_count=len(result.valid_records),
         invalid_count=len(result.invalid_records),
         schema_version="2020-12",

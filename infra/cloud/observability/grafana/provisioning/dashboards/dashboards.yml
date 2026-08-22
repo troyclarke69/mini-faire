@@ -1,0 +1,15 @@
+# Grafana dashboard provisioning - points Grafana at ../../dashboards (mounted
+# read-only in docker-compose.observability.yaml) so mini-faire-overview.json
+# loads automatically on startup instead of needing a manual import.
+apiVersion: 1
+
+providers:
+  - name: mini-faire
+    orgId: 1
+    folder: "Mini Faire"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards/json
+      foldersFromFilesStructure: false

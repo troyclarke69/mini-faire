@@ -1,0 +1,26 @@
+# Grafana datasource provisioning (PHASE7-DEPLOYMENT.md Section 8) - mounted
+# into the grafana service in ../../docker-compose.observability.yaml at
+# /etc/grafana/provisioning/datasources/. Auto-registers Prometheus, Loki,
+# and Jaeger on container start so a fresh `docker compose up` gets a
+# working Grafana with no manual "Add data source" click-through.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: true
+
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: true

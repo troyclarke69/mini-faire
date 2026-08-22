@@ -15,6 +15,10 @@ CONTRACT_BY_ENTITY = {
     "products": "product.schema.json",
     "orders": "order.schema.json",
     "order_created": "order_created.schema.json",
+    "order_paid": "events/order_paid.schema.json",
+    "orders_shipped": "events/orders_shipped.schema.json",
+    "inventory_updated": "events/inventory_updated.schema.json",
+    "price_changed": "events/price_changed.schema.json",
 }
 
 

@@ -93,6 +93,8 @@ marts.compute_model_runs
 
 The compute tables are replaceable derived tables. Their sources are already durable in DuckDB facts, so recomputing them is safe and idempotent for this demo.
 
+As of Phase 4 (`PHASE4-REALTIME&STREAMING.md`), `insert_compute_audit()` also appends a row to the shared `elt_model_runs` table (not just `marts.compute_model_runs`), tagged `load_strategy = 'polars_full_refresh'`, `business_key = 'n/a'`, `high_watermark = null` - compute models recompute fully from marts each run rather than watermark-filtering, and have no natural key of their own. This lets the frontend's ELT Model Runs view (which only ever queried `elt_model_runs`) reflect Polars compute activity, not only DuckDB SQL model runs. `marts.compute_model_runs` is unaffected and still carries its own richer audit row (row/column counts, source tables) per model.
+
 ## Running Polars Compute
 
 Run the whole platform:

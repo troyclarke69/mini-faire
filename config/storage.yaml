@@ -1,0 +1,61 @@
+# Cloud storage configuration (PHASE7-DEPLOYMENT.md Section 5).
+#
+# storage/cloud_storage.py reads this file rather than hardcoding a backend,
+# matching config/ml.yaml / config/auth.yaml's convention. `backend: local`
+# (the default) needs zero configuration beyond this file and requires none
+# of the `[cloud]` optional-dependency SDKs (pyproject.toml) - every raw
+# JSON file lands under ingestion/paths.py's RAW_DIR/TENANTS_RAW_DIR exactly
+# as it already does without this module in the picture at all. Switching
+# `backend` to `s3` / `azure_blob` / `gcs` routes the same
+# upload/download/list/retention calls through that provider's SDK instead -
+# see storage/cloud_storage.py's module docstring.
+#
+# Credentials are never stored here, same posture as config/mongo.yaml's
+# MONGO_PASSWORD and config/alerts.yaml's webhook URLs - each cloud backend
+# reads its credentials the standard way its own SDK expects (S3: the usual
+# boto3 credential chain - env vars / ~/.aws/credentials / instance role;
+# Azure: AZURE_STORAGE_CONNECTION_STRING; GCS: GOOGLE_APPLICATION_CREDENTIALS
+# pointing at a service-account key file).
+
+backend: local  # local | s3 | azure_blob | gcs
+
+local:
+  # Relative to ingestion/paths.py's PROJECT_ROOT when relative; the same
+  # tree RAW_DIR/TENANTS_RAW_DIR already point at, so the local backend and
+  # this repo's existing raw-zone layout are the same files, not a copy.
+  root: data/raw
+
+s3:
+  bucket: mini-faire-raw
+  region: us-east-1
+  # S3-compatible endpoints (e.g. a self-hosted MinIO instead of real AWS -
+  # infra/cloud/terraform/object_storage/ provisions either) - null uses
+  # boto3's default AWS endpoint resolution.
+  endpoint_url: null
+
+azure_blob:
+  container: mini-faire-raw
+  # Storage account name (not the connection string - that's
+  # AZURE_STORAGE_CONNECTION_STRING, read directly by the SDK).
+  account_name: minifaireraw
+
+gcs:
+  bucket: mini-faire-raw
+  project_id: mini-faire
+
+# Retention: how long a tenant's raw objects are kept before
+# apply_retention_policy() considers them eligible for deletion. Mirrors the
+# "soft delete only, never auto-delete on your own initiative" posture
+# multi_tenant/tenant_manager.py's module docstring documents for tenant
+# records themselves - apply_retention_policy() only ever LISTS what it
+# would delete unless called with dry_run=False, and even then only removes
+# objects, never a tenant's row/metadata.
+retention:
+  raw_zone_days: 365
+
+# Versioning: whether upload_raw_json() keeps every previous version of an
+# object under the same key (local backend: `<key>.v<N>.json` siblings; S3:
+# relies on the bucket's native object versioning, configured via
+# infra/cloud/terraform's object_storage module, not toggled here) or
+# overwrites in place.
+versioning_enabled: true

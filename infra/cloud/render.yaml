@@ -1,0 +1,85 @@
+# Render deployment manifest / Blueprint (PHASE7-DEPLOYMENT.md Section 1).
+# `render blueprint launch` (or connecting the repo in the Render dashboard,
+# which auto-detects this file at the repo root - Render also accepts it
+# from a subdirectory when pointed at one explicitly) provisions every
+# service below together. Not deployed/validated against a real Render
+# account from the sandbox that authored this file.
+
+services:
+  - type: web
+    name: mini-faire-backend
+    runtime: docker
+    dockerfilePath: ./infra/cloud/Dockerfile.backend
+    dockerContext: .
+    healthCheckPath: /health
+    plan: standard
+    disk:
+      # Same single-writer constraint fly.toml's mount documents - a Render
+      # disk is attached to one instance, matching DuckDB's own limits.
+      name: mini-faire-data
+      mountPath: /app/data
+      sizeGB: 10
+    envVars:
+      - key: MINI_FAIRE_DATA_DIR
+        value: /app/data
+      - key: JWT_SECRET_KEY
+        sync: false  # set in the Render dashboard - never committed here
+      - key: MONGO_PASSWORD
+        sync: false
+      - key: POSTGRES_PASSWORD
+        sync: false
+      - key: SLACK_WEBHOOK_URL
+        sync: false
+
+  - type: web
+    name: mini-faire-frontend
+    runtime: docker
+    dockerfilePath: ./infra/cloud/Dockerfile.frontend
+    dockerContext: .
+    dockerBuildArgs:
+      NEXT_PUBLIC_API_URL: https://mini-faire-backend.onrender.com
+    plan: starter
+
+  - type: worker
+    name: mini-faire-realtime-flow
+    runtime: docker
+    dockerfilePath: ./infra/cloud/Dockerfile.orchestration
+    dockerContext: .
+    dockerCommand: python -m orchestration.realtime_flow
+    plan: standard
+    disk:
+      name: mini-faire-data
+      mountPath: /app/data
+      sizeGB: 10
+    envVars:
+      - key: MINI_FAIRE_DATA_DIR
+        value: /app/data
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: MONGO_PASSWORD
+        sync: false
+
+  - type: worker
+    name: mini-faire-stream-generator
+    runtime: docker
+    dockerfilePath: ./infra/cloud/Dockerfile.streaming
+    dockerContext: .
+    dockerCommand: python synthetic/stream_generator.py --no-local-ingest
+    plan: starter
+    disk:
+      name: mini-faire-data
+      mountPath: /app/data
+      sizeGB: 10
+
+  - type: cron
+    name: mini-faire-ml-training
+    runtime: docker
+    dockerfilePath: ./infra/cloud/Dockerfile.ml
+    dockerContext: .
+    dockerCommand: python orchestration/ml_training_flow.py
+    schedule: "0 6 * * *"  # daily, 06:00 UTC
+    plan: standard
+    disk:
+      name: mini-faire-data
+      mountPath: /app/data
+      sizeGB: 10

@@ -1,0 +1,66 @@
+# Cloud database configuration (PHASE7-DEPLOYMENT.md Section 6).
+#
+# database/cloud_db.py reads this file. Unlike config/storage.yaml (one
+# backend selected at a time), this describes three INDEPENDENT connections
+# that a real hybrid deployment runs simultaneously - each with its own
+# `enabled` flag - because Section 6 asks for three different databases for
+# three different jobs, not one database swapped for another:
+#
+#   - duckdb:   the OLAP warehouse (staging/marts/ml/anomalies/monitoring
+#               schemas) - always enabled, exactly what this repo already
+#               runs via ingestion/duckdb_utils.py's connect_with_retry().
+#               "DuckDB server mode" here means "DuckDB opened by this
+#               backend process" (already true today); DuckDB WASM is a
+#               frontend-only concept with no backend Python surface, so
+#               there's nothing to configure for it here - see
+#               frontend/lib's own notes.
+#   - postgres: metadata/lineage/auth's cloud home per Section 6
+#               ("Neon/Postgres (metadata + lineage + auth)") - disabled by
+#               default, since this repo's ingestion_runs/lineage_edges/
+#               tenant.tenants/auth.users tables all live in DuckDB today
+#               and migrating them is a deliberately separate, larger
+#               follow-on (see database/cloud_db.py's module docstring).
+#               When enabled, database/cloud_db.py's PostgresConnectionManager
+#               is available for a caller that wants to write metadata to
+#               Postgres instead/in addition.
+#   - mongo:    reuses config/mongo.yaml's existing connection settings
+#               (mongo_uri_template + MONGO_PASSWORD) rather than
+#               duplicating them - this section only adds pooling/retry
+#               tuning on top of what ingestion/mongo_ingest.py already
+#               connects with.
+#
+# No credentials live here - same posture as every other config/*.yaml
+# (mongo.yaml's MONGO_PASSWORD, alerts.yaml's webhook URLs, auth.yaml's
+# JWT_SECRET_KEY, storage.yaml's cloud SDK credential chains).
+
+duckdb:
+  enabled: true
+  # DuckDB is single-writer; "pooling" here means a small in-process cache
+  # of read-only connections so repeated reads within one process don't
+  # reopen the file every call - see database/cloud_db.py's
+  # DuckDBConnectionManager. Bounded, not unlimited, since each cached
+  # connection holds the file open.
+  read_pool_size: 4
+  retries: 8
+
+postgres:
+  enabled: false
+  host: ""
+  port: 5432
+  database: mini_faire_metadata
+  user: mini_faire
+  # Password is read from POSTGRES_PASSWORD (see database/cloud_db.py),
+  # never stored here.
+  password_env_var: POSTGRES_PASSWORD
+  sslmode: require
+  pool_min_size: 1
+  pool_max_size: 5
+  retries: 5
+  migrations_dir: database/migrations/postgres
+
+mongo:
+  enabled: false
+  # Reuses config/mongo.yaml's own connection settings/env var
+  # (MONGO_PASSWORD) rather than repeating them here.
+  retries: 5
+  server_selection_timeout_ms: 5000

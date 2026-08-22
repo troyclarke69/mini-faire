@@ -1,0 +1,35 @@
+# Streaming services (PHASE7-DEPLOYMENT.md Section 1) -
+# synthetic/stream_generator.py and ingestion/mongo_change_stream.py, the
+# two long-lived processes README.md's "Real-time streaming" section
+# describes. Separate image from Dockerfile.orchestration even though the
+# dependency surface overlaps, because these are the two services
+# docker-compose.cloud.yaml scales/restarts independently of the
+# ELT/compute orchestration flows - matching PHASE4-REALTIME&STREAMING.md's
+# original process boundaries (stream_generator.py and realtime_flow.py are
+# meant to run as separate processes, not merged).
+#
+# Same build-untested caveat as this directory's other Dockerfiles.
+
+FROM python:3.12-slim AS base
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY compute/ ./compute/
+COPY config/ ./config/
+COPY contracts/ ./contracts/
+COPY ingestion/ ./ingestion/
+COPY multi_tenant/ ./multi_tenant/
+COPY storage/ ./storage/
+COPY synthetic/ ./synthetic/
+COPY warehouse/ ./warehouse/
+
+RUN pip install --no-cache-dir -e ".[mongo]"
+RUN mkdir -p /app/data
+
+ENV PYTHONUNBUFFERED=1
+
+# Overridden per-service in docker-compose.cloud.yaml, e.g.:
+#   command: ["synthetic/stream_generator.py", "--no-local-ingest"]
+#   command: ["-m", "ingestion.mongo_change_stream"]
+ENTRYPOINT ["python"]
+CMD ["synthetic/stream_generator.py", "--no-local-ingest"]

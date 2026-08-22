@@ -1,4 +1,5 @@
-import { LineageGraph } from "@/components/LineageGraph";
+import { LiveMetaBar } from "@/components/LiveMetaBar";
+import { LineageGraphLive } from "@/components/LineageGraphLive";
 import { PageHeader } from "@/components/PageHeader";
 import { IngestionRunsTable } from "@/components/tables/IngestionRunsTable";
 import { LineageTable } from "@/components/tables/LineageTable";
@@ -10,7 +11,8 @@ export default async function LineagePage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Lineage" subtitle="Path-level ingestion edges plus table-form governance metadata." />
-      <LineageGraph edges={edges} />
+      <LiveMetaBar />
+      <LineageGraphLive edges={edges} />
       <LineageTable />
       <IngestionRunsTable />
     </div>

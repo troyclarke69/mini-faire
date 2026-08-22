@@ -1,0 +1,191 @@
+# API Gateway policy specification (PHASE7-DEPLOYMENT.md Section 7).
+#
+# An OpenAPI 3.0 document with AWS API Gateway's `x-amazon-apigateway-*`
+# extensions - the same format `aws apigateway import-rest-api` accepts, and
+# what a hardened version of infra/cloud/terraform/modules/api_gateway/
+# would pass as `aws_apigatewayv2_api`'s `body` argument instead of that
+# module's current bare HTTP-proxy-everything setup (kept intentionally
+# minimal there - see that module's header - so this document is the fuller
+# routing/auth/rate-limit policy). Not deployed/validated against a real
+# AWS account in the sandbox that authored this file.
+#
+# JWT validation gap, stated plainly rather than glossed over: auth/
+# auth_models.py signs access tokens with HS256 (a shared secret -
+# JWT_SECRET_KEY), which only the backend itself can verify. API Gateway's
+# native JWT authorizer needs a JWKS endpoint (RS256/ES256, a public key it
+# can fetch and cache) - it cannot validate an HS256 token without also
+# holding the same shared secret the backend uses, which defeats the point
+# of validating at the edge instead of trusting the backend. Two honest
+# paths forward, neither implemented by this phase: (a) switch auth/
+# auth_models.py's `encode_jwt`/`decode_jwt` to RS256 with a real keypair
+# and publish a JWKS endpoint, or (b) keep HS256 and do JWT validation only
+# in `auth/auth_middleware.py`'s `get_current_user()` (already true today),
+# treating the gateway's `x-amazon-apigateway-request-validator` /
+# `x-amazon-apigateway-authtype: NONE` below as "structural request
+# validation + rate limiting + routing," not "authentication," and leaving
+# authentication to the backend. This document takes path (b) - every route
+# is `authtype: NONE` at the gateway (no gateway-level authorizer wired up),
+# consistent with what's actually implemented; a lambda-authorizer stub that
+# calls back into the backend's own `/auth/me` to validate a token is the
+# minimal way to get real gateway-level enforcement without an HS256/JWKS
+# mismatch, and is called out below as the follow-on, not claimed as done.
+
+openapi: 3.0.3
+info:
+  title: Mini Faire API Gateway
+  version: "1.0"
+servers:
+  - url: https://api.mini-faire.example.com
+
+x-amazon-apigateway-cors:
+  # Mirrors api/metrics_api.py's CORSMiddleware exactly - kept in sync by
+  # hand since gateway-level CORS and the FastAPI app's own CORS middleware
+  # are independent enforcement points (see that file's Phase 7 comment).
+  allowOrigins:
+    - "https://mini-faire-frontend.fly.dev"
+    - "https://localhost:3000"
+  allowMethods: ["GET", "POST", "OPTIONS"]
+  allowHeaders: ["authorization", "content-type"]
+  allowCredentials: false
+
+x-amazon-apigateway-request-validators:
+  basic:
+    validateRequestBody: true
+    validateRequestParameters: true
+
+x-mini-faire-rate-limit:
+  # Matches config/auth.yaml's rate_limit block exactly - the gateway's
+  # throttle is the coarse, edge-level backstop; auth/auth_middleware.py's
+  # RateLimitMiddleware is the backend's own per-process enforcement
+  # (see that module's docstring on why a shared/multi-instance-safe
+  # limiter, e.g. Redis-backed, is what a horizontally-scaled deployment
+  # would put here instead of matching config values by hand).
+  requestsPerMinute: 120
+  burst: 30
+
+paths:
+  /health:
+    get:
+      x-amazon-apigateway-integration: &backend-proxy
+        type: HTTP_PROXY
+        httpMethod: ANY
+        uri: "http://${stageVariables.backendLoadBalancerDns}/health"
+        connectionType: INTERNET
+      x-amazon-apigateway-auth:
+        type: NONE
+
+  # Public, read-only marketplace-wide metrics/compute/metadata - never
+  # gated behind auth, per api/metrics_api.py / README.md's existing
+  # posture (see this file's header). Path-based routing forwards each
+  # prefix to the backend unchanged; the gateway does no per-route logic
+  # beyond CORS/rate-limit/TLS.
+  /metrics/{proxy+}:
+    x-amazon-apigateway-any-method:
+      x-amazon-apigateway-integration:
+        type: HTTP_PROXY
+        httpMethod: ANY
+        uri: "http://${stageVariables.backendLoadBalancerDns}/metrics/{proxy}"
+        connectionType: INTERNET
+      x-amazon-apigateway-auth:
+        type: NONE
+
+  /compute/{proxy+}:
+    x-amazon-apigateway-any-method:
+      x-amazon-apigateway-integration:
+        type: HTTP_PROXY
+        httpMethod: ANY
+        uri: "http://${stageVariables.backendLoadBalancerDns}/compute/{proxy}"
+        connectionType: INTERNET
+      x-amazon-apigateway-auth:
+        type: NONE
+
+  /metadata/{proxy+}:
+    x-amazon-apigateway-any-method:
+      x-amazon-apigateway-integration:
+        type: HTTP_PROXY
+        httpMethod: ANY
+        uri: "http://${stageVariables.backendLoadBalancerDns}/metadata/{proxy}"
+        connectionType: INTERNET
+      x-amazon-apigateway-auth:
+        type: NONE
+
+  /realtime/{proxy+}:
+    x-amazon-apigateway-any-method:
+      x-amazon-apigateway-integration:
+        type: HTTP_PROXY
+        httpMethod: ANY
+        uri: "http://${stageVariables.backendLoadBalancerDns}/realtime/{proxy}"
+        connectionType: INTERNET
+      x-amazon-apigateway-auth:
+        type: NONE
+
+  /monitoring/{proxy+}:
+    x-amazon-apigateway-any-method:
+      x-amazon-apigateway-integration:
+        type: HTTP_PROXY
+        httpMethod: ANY
+        uri: "http://${stageVariables.backendLoadBalancerDns}/monitoring/{proxy}"
+        connectionType: INTERNET
+      x-amazon-apigateway-auth:
+        type: NONE
+
+  /ml/{proxy+}:
+    x-amazon-apigateway-any-method:
+      x-amazon-apigateway-integration:
+        type: HTTP_PROXY
+        httpMethod: ANY
+        uri: "http://${stageVariables.backendLoadBalancerDns}/ml/{proxy}"
+        connectionType: INTERNET
+      x-amazon-apigateway-auth:
+        type: NONE
+
+  # Auth endpoints - public (signup/login/join don't have a token yet by
+  # definition), forwarded unchanged; the backend itself is what actually
+  # issues/validates tokens (auth/auth_api.py, auth/auth_models.py).
+  /auth/{proxy+}:
+    x-amazon-apigateway-any-method:
+      x-amazon-apigateway-integration:
+        type: HTTP_PROXY
+        httpMethod: ANY
+        uri: "http://${stageVariables.backendLoadBalancerDns}/auth/{proxy}"
+        connectionType: INTERNET
+      x-amazon-apigateway-auth:
+        type: NONE
+
+  # Tenant-scoped routes - PATH-based tenant routing: {tenant_id} is
+  # extracted here and forwarded as a path parameter, but the actual
+  # tenant-membership check happens in the backend
+  # (auth/auth_middleware.py's require_tenant() dependency reads the
+  # caller's JWT tenant_id claim and compares it against this path
+  # parameter) - the gateway routes by tenant_id, it does not itself decide
+  # who may access which tenant's data, per this file's header note on the
+  # HS256/JWKS gap.
+  /tenants/{tenant_id}/{proxy+}:
+    x-amazon-apigateway-any-method:
+      x-amazon-apigateway-integration:
+        type: HTTP_PROXY
+        httpMethod: ANY
+        uri: "http://${stageVariables.backendLoadBalancerDns}/tenants/{tenant_id}/{proxy}"
+        connectionType: INTERNET
+      x-amazon-apigateway-auth:
+        type: NONE
+
+# TLS termination: the gateway's custom domain
+# (aws_apigatewayv2_domain_name in infra/cloud/terraform/modules/api_gateway,
+# currently `count = 0` / opt-in until a real ACM certificate ARN and
+# domain are supplied) terminates TLS at the edge and forwards plain HTTP
+# to the backend load balancer over the VPC's internal network
+# (modules/vpc's private routing) - the same split
+# infra/cloud/terraform/modules/load_balancer's own (currently opt-in)
+# HTTPS listener documents for the ALB-direct path.
+x-mini-faire-tls:
+  terminatesAt: gateway
+  minimumTlsVersion: "1.2"
+
+# Follow-on, not implemented by this phase: a Lambda authorizer (or the
+# RS256/JWKS switch this file's header describes) so JWT validation moves
+# to the gateway instead of only happening inside
+# auth/auth_middleware.py's get_current_user(). Listed here rather than
+# silently assumed done, matching this repo's "documented gap, not
+# overclaimed" convention (see multi_tenant/tenant_manager.py's silo
+# isolation note for the same pattern).

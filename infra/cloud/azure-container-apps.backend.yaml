@@ -1,0 +1,72 @@
+# Azure Container Apps deployment manifest (PHASE7-DEPLOYMENT.md Section 1)
+# for the backend service - the `az containerapp create --yaml <this file>`
+# schema. Build+push the image first (infra/cloud/Dockerfile.backend) to an
+# Azure Container Registry, then:
+#   az containerapp create \
+#     --name mini-faire-backend --resource-group mini-faire \
+#     --environment mini-faire-env --yaml infra/cloud/azure-container-apps.backend.yaml
+#
+# infra/cloud/terraform/modules/vpc + secrets_manager provision the
+# Container Apps Environment / VNet / Key Vault this references
+# (`<env>` / `<key-vault-name>` placeholders below are that module's
+# outputs). Not deployed/validated against a real Azure subscription from
+# the sandbox that authored this file.
+
+properties:
+  managedEnvironmentId: <container-apps-environment-resource-id>  # infra/cloud/terraform/modules/vpc output
+  configuration:
+    ingress:
+      external: true
+      targetPort: 8000
+      transport: auto
+    secrets:
+      - name: jwt-secret-key
+        keyVaultUrl: https://<key-vault-name>.vault.azure.net/secrets/jwt-secret-key
+        identity: system
+      - name: mongo-password
+        keyVaultUrl: https://<key-vault-name>.vault.azure.net/secrets/mongo-password
+        identity: system
+      - name: postgres-password
+        keyVaultUrl: https://<key-vault-name>.vault.azure.net/secrets/postgres-password
+        identity: system
+    registries:
+      - server: <acr-name>.azurecr.io
+        identity: system
+  template:
+    containers:
+      - name: backend
+        image: <acr-name>.azurecr.io/mini-faire-backend:latest
+        resources:
+          cpu: 1.0
+          memory: 2Gi
+        env:
+          - name: MINI_FAIRE_DATA_DIR
+            value: /app/data
+          - name: JWT_SECRET_KEY
+            secretRef: jwt-secret-key
+          - name: MONGO_PASSWORD
+            secretRef: mongo-password
+          - name: POSTGRES_PASSWORD
+            secretRef: postgres-password
+        volumeMounts:
+          - volumeName: data
+            mountPath: /app/data
+        probes:
+          - type: Liveness
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+    volumes:
+      # Azure Files, not a local emptyDir - Container Apps replicas are
+      # ephemeral/multi-instance by default, and (same single-writer
+      # constraint as fly.toml/render.yaml) DuckDB needs one consistent
+      # writer against this share; scaling.minReplicas/maxReplicas below is
+      # pinned to 1 for exactly that reason.
+      - name: data
+        storageType: AzureFile
+        storageName: mini-faire-data
+    scale:
+      minReplicas: 1
+      maxReplicas: 1

@@ -1,0 +1,43 @@
+# Authentication & RBAC configuration (PHASE7-DEPLOYMENT.md Section 3).
+#
+# auth/auth_models.py reads this file rather than hardcoding token
+# lifetimes/rate limits, matching config/ml.yaml / config/alerts.yaml's
+# existing convention. The JWT signing secret itself is NOT here - like
+# config/mongo.yaml's MONGO_PASSWORD and config/alerts.yaml's webhook URLs,
+# it's read from an environment variable (jwt.secret_env_var below) so it's
+# never committed to the repo. If that environment variable is unset,
+# auth_models.py falls back to a clearly-labeled insecure development
+# secret and prints a loud warning - the same "the demo runs with zero
+# configuration, but a real deployment must set the real secret" posture
+# this repo already takes with Slack/webhook alerting.
+
+enabled: true
+
+jwt:
+  secret_env_var: JWT_SECRET_KEY
+  algorithm: HS256
+  access_token_ttl_seconds: 900       # 15 minutes
+  refresh_token_ttl_seconds: 1209600  # 14 days
+
+password_policy:
+  min_length: 10
+
+# In-process token-bucket rate limiting (auth/auth_middleware.py's
+# RateLimitMiddleware) - per-client (JWT subject if authenticated, else
+# client IP), reset every 60s. This is a single-process limiter (an
+# in-memory dict), fine for this demo's single-uvicorn-worker deployment;
+# infra/cloud/api_gateway.yaml documents the shared, multi-instance-safe
+# rate limiting a real horizontally-scaled deployment would front this
+# with instead.
+rate_limit:
+  enabled: true
+  requests_per_minute: 120
+  burst: 30
+
+roles:
+  - admin
+  - tenant_admin
+  - analyst
+  - viewer
+
+default_role: viewer

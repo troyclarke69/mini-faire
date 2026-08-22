@@ -1,0 +1,81 @@
+# Config for synthetic/generator.py. All knobs referenced in PHASE3-DATA-LOAD.md
+# Section 3B live here: retailer/product counts, daily order volume, event
+# probabilities, inventory/price volatility, anomaly frequency, and date range.
+seed: 20260820
+
+date_range:
+  start: "2026-08-19"
+  end: "2026-08-20"
+
+retailers:
+  new_count: 5
+  countries: ["US", "CA", "UK", "AU", "DE"]
+  categories: ["Home", "Lifestyle", "Kids", "Outdoor", "Kitchen", "Accessories", "Garden"]
+  status_weights:
+    active: 0.85
+    paused: 0.10
+    churned: 0.05
+
+products:
+  new_count: 8
+  categories: ["Kitchen", "Accessories", "Kids", "Outdoor", "Home", "Beauty", "Garden"]
+  unit_price_range: [12.0, 120.0]
+  margin_range: [0.35, 0.60]
+  inventory_count_range: [40, 260]
+  new_brand_rate: 0.5
+
+orders:
+  daily_volume_range: [6, 14]
+  weekend_multiplier: 1.4
+  quantity_range: [1, 6]
+  discount_rate_range: [0.0, 0.15]
+  cancelled_rate: 0.05
+
+events:
+  order_paid_rate: 0.85
+  orders_shipped_rate: 0.7
+  payment_lag_minutes: [5, 240]
+  shipping_lag_minutes: [60, 1440]
+  carriers: ["UPS", "FedEx", "USPS", "DHL", "Canada Post"]
+  inventory_updates_per_day_range: [3, 8]
+  inventory_delta_range: [-15, 25]
+  price_changes_per_day_range: [0, 2]
+  price_change_pct_range: [-0.15, 0.20]
+
+anomalies:
+  invalid_record_rate: 0.20
+  large_order_rate: 0.05
+  large_order_multiplier_range: [3, 6]
+
+mongo_seed:
+  enabled: false
+  collections:
+    - retailers
+    - products
+    - orders
+    - order_created
+    - order_paid
+    - orders_shipped
+    - inventory_updated
+
+# Continuous streaming generator config (PHASE4-REALTIME&STREAMING.md Section 1)
+# - synthetic/stream_generator.py. Unlike the one-shot batch generator above,
+# this only ever emits EVENTS (order_created/order_paid/orders_shipped/
+# inventory_updated/price_changed) at a steady real-time pace against the
+# existing retailer/product catalog - it never mints new retailers/products/
+# batch order rows itself.
+streaming:
+  enabled: true
+  # Target pace of new order_created "heartbeats". inventory_updated and
+  # price_changed are additionally rolled every heartbeat tick per their own
+  # probability below, so actual events/minute is usually somewhat higher.
+  events_per_minute: 30
+  lifecycle_probabilities:
+    # Chained off each order_created, mirroring events.order_paid_rate /
+    # events.orders_shipped_rate above but tunable independently for the
+    # live stream.
+    order_paid: 0.95
+    orders_shipped: 0.90
+    # Rolled independently every heartbeat tick (not chained off an order).
+    inventory_updated: 0.40
+    price_changed: 0.10

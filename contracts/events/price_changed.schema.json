@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Price Changed Event",
+  "type": "object",
+  "properties": {
+    "event_id": { "type": "string" },
+    "event_type": { "type": "string", "enum": ["price_changed"] },
+    "product_id": { "type": "string" },
+    "old_price": { "type": "number", "minimum": 0 },
+    "new_price": { "type": "number", "minimum": 0 },
+    "event_ts": { "type": "string", "format": "date-time" }
+  },
+  "required": ["event_id", "event_type", "product_id", "old_price", "new_price", "event_ts"]
+}

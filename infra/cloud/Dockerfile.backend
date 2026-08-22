@@ -1,0 +1,59 @@
+# FastAPI backend (PHASE7-DEPLOYMENT.md Section 1). Serves api/metrics_api.py
+# (which mounts realtime_api.py / monitoring_api.py / ml_api.py / auth_api.py -
+# see api/metrics_api.py itself) via uvicorn.
+#
+# Not buildable/runnable in the sandbox that authored this file (no Docker
+# daemon available there - `docker info` fails to reach one) - written to
+# match this repo's actual dependency surface (pyproject.toml) and run
+# command (README.md: `uvicorn api.metrics_api:app`), not build-tested
+# end-to-end. `docker build -f infra/cloud/Dockerfile.backend .` from the
+# repo root is the way to validate it for real.
+
+FROM python:3.12-slim AS base
+
+# libpq for psycopg2 (database/cloud_db.py's optional Postgres backend);
+# harmless if that backend stays disabled (config/database.yaml's default).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+# Every top-level Python package this repo ships - see
+# [tool.setuptools.packages.find]'s include list in pyproject.toml.
+COPY alerts/ ./alerts/
+COPY anomalies/ ./anomalies/
+COPY api/ ./api/
+COPY auth/ ./auth/
+COPY compute/ ./compute/
+COPY config/ ./config/
+COPY contracts/ ./contracts/
+COPY database/ ./database/
+COPY ingestion/ ./ingestion/
+COPY ml/ ./ml/
+COPY monitoring/ ./monitoring/
+COPY multi_tenant/ ./multi_tenant/
+COPY orchestration/ ./orchestration/
+COPY storage/ ./storage/
+COPY synthetic/ ./synthetic/
+COPY warehouse/ ./warehouse/
+
+# [ml] is included so /ml/* endpoints can read model metadata/artifacts
+# trained by the ml service (Dockerfile.ml) sharing the same warehouse
+# volume; api/ml_api.py itself only reads ml.model_registry rows (see that
+# module's docstring), but importing ml/models/*.py transitively (via
+# orchestration re-exports elsewhere) is cheapest to just always satisfy.
+RUN pip install --no-cache-dir -e ".[ml]"
+
+# data/ (the DuckDB warehouse + raw/ml_models zones) is a volume in
+# docker-compose.cloud.yaml, not baked into the image - see that file.
+RUN mkdir -p /app/data
+
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/realtime/health', timeout=3)" || exit 1
+
+CMD ["uvicorn", "api.metrics_api:app", "--host", "0.0.0.0", "--port", "8000"]

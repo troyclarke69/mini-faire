@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Inventory Updated Event",
+  "type": "object",
+  "properties": {
+    "event_id": { "type": "string" },
+    "event_type": { "type": "string", "enum": ["inventory_updated"] },
+    "product_id": { "type": "string" },
+    "delta": { "type": "integer" },
+    "inventory_count_after": { "type": "integer", "minimum": 0 },
+    "reason": { "type": "string" },
+    "event_ts": { "type": "string", "format": "date-time" }
+  },
+  "required": ["event_id", "event_type", "product_id", "delta", "event_ts"]
+}

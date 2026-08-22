@@ -1,0 +1,47 @@
+# Next.js frontend (PHASE7-DEPLOYMENT.md Section 1). Multi-stage build
+# producing Next.js' "standalone" output (a self-contained server bundle
+# with only the node_modules it actually needs), not the full node_modules
+# tree - much smaller final image.
+#
+# Requires frontend/next.config.mjs to set `output: 'standalone'` (added in
+# this same Phase 7 change - see that file) - without it, `.next/standalone`
+# is never produced and the final stage's COPY below has nothing to copy.
+#
+# Same caveat as Dockerfile.backend: not build-tested in the sandbox that
+# authored this file (no Docker daemon reachable there). Written to match
+# frontend/package.json's actual scripts (`next build` / `next start`) and
+# dependencies (Next.js 14, npm) exactly.
+
+FROM node:20-slim AS deps
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+FROM node:20-slim AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY frontend/ .
+# NEXT_PUBLIC_API_URL is baked in at build time (Next.js inlines
+# NEXT_PUBLIC_* vars into the client bundle) - docker-compose.cloud.yaml
+# passes it as a build arg per environment; infra/cloud/fly.toml /
+# render.yaml set it per their own build-arg mechanism.
+ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+RUN npm run build
+
+FROM node:20-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=build --chown=nextjs:nodejs /app/public ./public
+USER nextjs
+
+EXPOSE 3000
+ENV PORT=3000 HOSTNAME=0.0.0.0
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD node -e "require('http').get('http://127.0.0.1:3000', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"
+
+CMD ["node", "server.js"]

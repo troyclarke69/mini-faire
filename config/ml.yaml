@@ -1,0 +1,84 @@
+# ML layer configuration (PHASE6-ML.md Section 1).
+#
+# Every ml/models/*.py module and orchestration/ml_training_flow.py /
+# ml_inference_flow.py reads this file rather than hardcoding hyperparameters,
+# matching config/synthetic.yaml / config/mongo.yaml / config/alerts.yaml's
+# existing convention. Nothing here is a secret - unlike alerts.yaml's
+# webhook URLs, there's nothing to keep out of the repo.
+
+enabled: true
+
+# scikit-learn (KMeans, RandomForestRegressor/Classifier, GradientBoosting,
+# NMF, cosine_similarity) is this repo's baseline ML dependency - see
+# pyproject.toml's [ml] extra. statsmodels/xgboost/lightgbm/prophet are
+# optional on top of that: every module that can use one tries an
+# `import` inside a try/except ImportError and silently falls back to its
+# scikit-learn/numpy default if the optional package isn't installed, so
+# this demo works with just the [ml] extra and gets marginally better
+# models if you also install [ml-extra]. See pyproject.toml for both.
+prefer_optional_libraries: true
+
+feature_engineering:
+  # Trailing window used by every ml/features/build_features.py builder for
+  # rolling aggregates (anomaly counts, event frequency, volatility, etc.).
+  lookback_days: 30
+
+forecasting:
+  horizon_days: 7
+  # Lag features fed to the RandomForestRegressor default model (yesterday,
+  # 2 days ago, ... n_lags days ago) - see ml/models/forecasting.py.
+  n_lags: 7
+  # Forecasts are only produced for the top N entities by recent volume
+  # (GMV / order count), not every retailer/product - a full per-entity
+  # sweep on a demo-sized dataset is cheap, but this caps output size and
+  # keeps ml_training_flow.py's runtime predictable as the synthetic
+  # generator accumulates more retailers/products over time. Uncapped
+  # would mean silently-growing runtime with no user-visible signal - this
+  # way it's an explicit, documented, and logged limit instead.
+  top_n_entities: 10
+  # Reorder/stockout thresholds for ml/models/forecasting.py's inventory
+  # forecast - same percentile-threshold philosophy as
+  # anomalies/detector.py's detect_inventory_stockouts, but evaluated
+  # against the *forecast* curve instead of current inventory_count.
+  stockout_inventory_threshold: 0
+  reorder_inventory_percentile: 15.0
+
+clustering:
+  # kmeans | dbscan | gmm - see ml/models/clustering.py's CLUSTER_METHODS.
+  method: kmeans
+  retailer_k: 4
+  product_k: 4
+  dbscan_eps: 1.5
+  dbscan_min_samples: 3
+  gmm_components: 4
+
+recommendations:
+  # cosine | nmf - see ml/models/recommendations.py.
+  method: cosine
+  nmf_components: 8
+  top_n: 5
+  # "frequently bought together" / "trending in category" windows.
+  co_occurrence_window_days: 1
+  trending_window_days: 7
+
+anomaly_classifier:
+  # random_forest | gradient_boosting - see ml/models/anomaly_classifier.py.
+  method: random_forest
+  # Below this many labeled anomalies (anomalies.anomaly_events rows) or
+  # fewer than 2 distinct anomaly_type values, training is skipped rather
+  # than fed to sklearn - a degenerate fit on a handful of rows / one class
+  # would silently produce a model that always predicts the same label with
+  # false confidence, which is worse than not training at all.
+  min_training_samples: 20
+  test_size: 0.25
+
+model_promotion:
+  # orchestration/ml_training_flow.py activates a newly-trained version only
+  # if the model_name has no active version yet, or the new version's eval
+  # metric is at least this much better than the current active version's
+  # (direction depends on the metric - see that module's _is_improvement()).
+  # Recommendations have no single scalar quality metric in this synthetic
+  # dataset (no held-out ground truth for "the right recommendation"), so
+  # every newly-trained recommendation version is activated unconditionally
+  # - documented in ml_training_flow.py rather than faked here.
+  min_relative_improvement: 0.0

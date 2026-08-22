@@ -1,0 +1,109 @@
+{
+  "title": "Mini Faire Overview",
+  "uid": "mini-faire-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "API request duration (p50/p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(mini_faire_api_request_duration_seconds_bucket[5m])) by (le, route))",
+          "legendFormat": "p50 {{route}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(mini_faire_api_request_duration_seconds_bucket[5m])) by (le, route))",
+          "legendFormat": "p95 {{route}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "API errors (5xx) / min",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(mini_faire_api_errors_total[1m])) by (route)", "legendFormat": "{{route}}" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Ingestion latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(mini_faire_ingestion_latency_seconds_bucket[15m])) by (le))" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "ELT run duration",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(mini_faire_elt_duration_seconds_bucket[15m])) by (le))" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Compute (Polars) run duration",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(mini_faire_compute_duration_seconds_bucket[15m])) by (le))" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "ML inference duration by model",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(mini_faire_ml_inference_duration_seconds_bucket[30m])) by (le, model))",
+          "legendFormat": "{{model}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Streaming lag",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [{ "expr": "mini_faire_streaming_lag_seconds" }]
+    },
+    {
+      "id": 8,
+      "title": "Anomaly frequency by type",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        { "expr": "mini_faire_anomaly_frequency_total{anomaly_type!=\"\"}", "legendFormat": "{{anomaly_type}}" }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Tenant GMV",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        { "expr": "mini_faire_tenant_usage_gmv", "legendFormat": "{{tenant_id}}" }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Recent logs (all services)",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "targets": [{ "expr": "{log_service=~\".+\"}", "datasource": { "type": "loki", "uid": "Loki" } }]
+    }
+  ]
+}

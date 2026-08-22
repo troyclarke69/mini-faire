@@ -1,0 +1,34 @@
+# Prometheus scrape config (PHASE7-DEPLOYMENT.md Section 8), referenced by
+# infra/cloud/docker-compose.observability.yaml's prometheus service. Scrapes
+# the backend's real GET /observability/metrics route (api/metrics_api.py,
+# wired up this phase) - the hand-rolled exposition-format text
+# observability/metrics.py's render_metrics_response() returns, refreshed
+# from the warehouse on every scrape via refresh_from_warehouse().
+#
+# `backend` below is the docker-compose *service name* from
+# docker-compose.cloud.yaml - Docker Compose's embedded DNS resolves it to
+# that container's IP when both compose files share a network (see this
+# directory's docker-compose.observability.yaml header for how to run them
+# together). Not validated against a live Prometheus in this sandbox (no
+# Docker daemon reachable here - see docker-compose.observability.yaml's own
+# header) - checked instead with `python3 -c "import yaml; yaml.safe_load(...)"`.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: ${DEPLOY_ENV:-local}
+
+scrape_configs:
+  - job_name: mini-faire-backend
+    metrics_path: /observability/metrics
+    static_configs:
+      - targets: ["backend:8000"]
+        labels:
+          service: backend
+
+  # Prometheus scraping itself - standard self-monitoring, not specific to
+  # this repo.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

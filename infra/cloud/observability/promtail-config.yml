@@ -1,0 +1,57 @@
+# Promtail config (PHASE7-DEPLOYMENT.md Section 8) - scrapes every
+# docker-compose container's stdout via Docker's own JSON log driver
+# (mounted read-only below) and pushes to the `loki` service. This is the
+# default path observability/logging.py's module docstring describes:
+# services call `configure_json_logging(service_name)` once at startup,
+# which points Python's stdlib logging at stdout in the one-JSON-object-
+# per-line shape this file's pipeline_stages parse (`timestamp`, `level`,
+# `service`, `logger`, `message`, plus whatever `extra=` fields a call site
+# added) - no service pushes to Loki directly except
+# observability/logging.py's push_to_loki() escape hatch for a process that
+# isn't in this docker-compose network at all (see that function's
+# docstring).
+#
+# Standard Promtail docker_sd_configs pattern - discovers every running
+# container via the mounted Docker socket, not a fixed list, so it picks up
+# backend/frontend/realtime-flow/stream-generator/ml-train/ml-infer (and any
+# future service in docker-compose.cloud.yaml) automatically. Not run
+# against a live Docker daemon in this sandbox - checked with
+# `yaml.safe_load`.
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker-containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 15s
+    relabel_configs:
+      # Docker Compose names containers "<project>-<service>-<n>" -
+      # __meta_docker_container_name has a leading "/" Docker always adds.
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: container
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
+        target_label: service
+    pipeline_stages:
+      # Docker's json-file log driver wraps every line as {"log": "...",
+      # "stream": "stdout"|"stderr", "time": "..."} - unwrap that first to
+      # get back to the raw JSON line configure_json_logging() emitted.
+      - docker: {}
+      - json:
+          expressions:
+            level: level
+            logger: logger
+            log_service: service
+      - labels:
+          level:
+          logger:
+          log_service:

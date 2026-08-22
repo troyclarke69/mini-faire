@@ -8,6 +8,7 @@ from pathlib import Path
 
 import duckdb
 
+from ingestion.duckdb_utils import connect_with_retry
 from ingestion.paths import DUCKDB_PATH
 
 
@@ -71,7 +72,7 @@ def write_metadata(path: Path, run: IngestionRun) -> None:
 
 def upsert_ingestion_run(run: IngestionRun, db_path: Path = DUCKDB_PATH) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with duckdb.connect(str(db_path)) as con:
+    with connect_with_retry(db_path) as con:
         con.execute(
             """
             create table if not exists ingestion_runs (
@@ -165,7 +166,7 @@ def upsert_lineage_edges(edges: list[LineageEdge], db_path: Path = DUCKDB_PATH) 
         return
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with duckdb.connect(str(db_path)) as con:
+    with connect_with_retry(db_path) as con:
         con.execute(
             """
             create table if not exists lineage_edges (

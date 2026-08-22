@@ -2,6 +2,10 @@
   "retailer": {"version": "1.0.0", "schema": "contracts/retailer.schema.json"},
   "product": {"version": "1.0.0", "schema": "contracts/product.schema.json"},
   "order": {"version": "1.0.0", "schema": "contracts/order.schema.json"},
-  "order_created": {"version": "1.0.0", "schema": "contracts/order_created.schema.json"}
+  "order_created": {"version": "1.0.0", "schema": "contracts/order_created.schema.json"},
+  "order_paid": {"version": "1.0.0", "schema": "contracts/events/order_paid.schema.json"},
+  "orders_shipped": {"version": "1.0.0", "schema": "contracts/events/orders_shipped.schema.json"},
+  "inventory_updated": {"version": "1.0.0", "schema": "contracts/events/inventory_updated.schema.json"},
+  "price_changed": {"version": "1.0.0", "schema": "contracts/events/price_changed.schema.json"}
 }
 

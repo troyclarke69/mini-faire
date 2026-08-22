@@ -1,0 +1,91 @@
+# Alerting configuration (PHASE5-MONITORING.md Section 2).
+#
+# Webhook URLs are NEVER stored here - only read from environment variables at
+# dispatch time (alerts/dispatcher.py), matching this repo's MONGO_PASSWORD
+# convention (see config/mongo.yaml). Set them before running, e.g. (PowerShell):
+#   $env:SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/..."
+#   $env:ALERT_WEBHOOK_URL = "https://example.com/webhooks/mini-faire-alerts"
+# Neither is required - if a channel's env var is unset, that channel is
+# silently skipped (recorded as "not_configured" in the dispatch result) and
+# the console fallback still fires, so alerting degrades gracefully rather
+# than failing the caller.
+
+enabled: true
+
+channels:
+  slack:
+    enabled: true
+    webhook_env_var: SLACK_WEBHOOK_URL
+  webhook:
+    enabled: true
+    webhook_env_var: ALERT_WEBHOOK_URL
+  # Always available, needs no configuration - the guaranteed fallback so an
+  # alert is never silently lost just because Slack/webhook aren't set up.
+  console:
+    enabled: true
+
+# Alerts below this severity are still recorded to monitoring.alert_events
+# (so the frontend's history/API stay complete) but are not sent to any
+# channel. severity_order defines the ranking used to compare against it.
+minimum_severity: info
+severity_order: [info, warning, critical]
+
+# Base URL the alert payload's "link to frontend dashboard" is built from
+# (PHASE5-MONITORING.md Section 2's alert payload requirement). Override via
+# the MONITORING_FRONTEND_URL environment variable for a non-default frontend
+# port/host without editing this file.
+frontend_base_url: http://127.0.0.1:3000
+
+# Default severity per alert type, used when a caller doesn't pass one
+# explicitly (e.g. threshold-driven alerts from monitoring/metrics.py).
+alert_type_severity:
+  anomaly_detected: warning
+  ingestion_failure: critical
+  ingestion_latency_threshold_exceeded: warning
+  elt_failure: critical
+  compute_failure: critical
+  schema_drift_detected: warning
+  quarantine_rate_spike: warning
+  mongo_change_stream_disconnect: warning
+  synthetic_generator_failure: critical
+  # PHASE6-ML.md Section 7: a post-activation sanity check failure is
+  # dispatched at "critical" by orchestration/ml_training_flow.py itself
+  # (an explicit severity= override on that call), so this default only
+  # applies to a caller that dispatches ml_training_failure without
+  # specifying one. Inference failures default lower than training
+  # failures - a single inference pass failing just leaves that model
+  # type's predictions stale until the next pass, whereas a training
+  # failure means a model version couldn't be produced/promoted at all.
+  ml_training_failure: critical
+  ml_inference_failure: warning
+
+# Which /monitoring/* dashboard page each alert type deep-links to (appended
+# to frontend_base_url by alerts/dispatcher.py's build_alert()). The two ML
+# alert types below point at /ml/models (the model registry dashboard - see
+# api/ml_api.py / the frontend's ML Models page) rather than /monitoring,
+# since they're about model training/inference health, not the core
+# ingestion/ELT/compute pipeline the /monitoring/* pages cover.
+alert_type_dashboard_path:
+  anomaly_detected: /monitoring/anomalies
+  schema_drift_detected: /monitoring/schema-drift
+  ingestion_failure: /monitoring
+  ingestion_latency_threshold_exceeded: /monitoring/system
+  elt_failure: /monitoring
+  compute_failure: /monitoring
+  quarantine_rate_spike: /monitoring/system
+  mongo_change_stream_disconnect: /monitoring
+  synthetic_generator_failure: /monitoring
+  ml_training_failure: /ml/models
+  ml_inference_failure: /ml/models
+
+# Thresholds monitoring/metrics.py compares computed metrics against to
+# decide when to dispatch a threshold-driven alert (as opposed to the
+# anomaly detector's statistical methods in anomalies/detector.py).
+thresholds:
+  ingestion_latency_seconds: 30
+  quarantine_rate: 0.25
+  # How stale a streaming service's heartbeat (ingestion/heartbeat.py) can get
+  # before monitoring/metrics.py treats it as disconnected rather than just
+  # idle - see ingestion/heartbeat.py's own fresh_within_seconds default (30s)
+  # for the "running vs stale" cutoff this builds on.
+  heartbeat_stale_seconds: 30
