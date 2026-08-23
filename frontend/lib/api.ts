@@ -1,10 +1,13 @@
 import type {
+  AgentStrategy,
   AlertEvent,
   AnomalyClassification,
   AnomalyEvent,
   BrandContribution,
   Cluster,
   ComputeModelRun,
+  Counterfactual,
+  CounterfactualCatalog,
   EltModelRun,
   EventLagSummary,
   Forecast,
@@ -21,7 +24,11 @@ import type {
   RetailerCohortRetention,
   RetailerDaily,
   RetailerHealth,
+  Scenario,
+  ScenarioCatalog,
   SchemaDriftEvent,
+  SimulationResultsFeed,
+  SimulationState,
   StreamingStatus,
   SystemMetric,
   TenantDaily,
@@ -50,6 +57,25 @@ async function getJson<T>(path: string): Promise<T> {
     return (await response.json()) as T;
   } catch {
     return [] as T;
+  }
+}
+
+// Phase 8 (PHASE8-SIMULATION.md Section 6 / api/simulation_api.py)'s detail
+// lookups (GET /simulation/results/scenario|counterfactual/{id}) genuinely
+// need to distinguish "not found" (a stale/bad id in a shared link) from
+// "found" - getJson()'s shared `[] as T` fallback can't express that for an
+// object-shaped T the way it can for the array-shaped endpoints above, so
+// this is a small third fetch helper alongside getJson()/getJsonAuthed()
+// rather than overloading either of those.
+async function getJsonOrNull<T>(path: string): Promise<T | null> {
+  try {
+    const response = await fetch(`${API_URL}${path}`, { next: { revalidate: REVALIDATE_SECONDS } });
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as T;
+  } catch {
+    return null;
   }
 }
 
@@ -115,7 +141,26 @@ export const api = {
   recommendations: () => getJson<Recommendation[]>("/ml/recommendations"),
   anomalyClassifications: () => getJson<AnomalyClassification[]>("/ml/anomalies/classified"),
   mlModels: () => getJson<ModelMetadata[]>("/ml/models"),
-  mlFeatures: () => getJson<MLFeature[]>("/ml/features")
+  mlFeatures: () => getJson<MLFeature[]>("/ml/features"),
+  // Phase 8 (PHASE8-SIMULATION.md Section 6 / api/simulation_api.py). Left
+  // unauthenticated like the ML/monitoring/realtime fetchers above (see
+  // api/simulation_api.py's module docstring) - `tenantId` is optional and
+  // threads straight through to the classic-vs-tenant twin split
+  // simulation/digital_twin.py's load_digital_twin() already supports.
+  simulationState: (tenantId?: string) =>
+    getJson<SimulationState>(`/simulation/state${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ""}`),
+  simulationAgents: (tenantId?: string) =>
+    getJson<AgentStrategy>(`/simulation/agents${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ""}`),
+  simulationScenarioCatalog: () => getJson<ScenarioCatalog>("/simulation/scenarios"),
+  simulationCounterfactualCatalog: () => getJson<CounterfactualCatalog>("/simulation/counterfactuals"),
+  simulationResults: (tenantId?: string, limit = 50) =>
+    getJson<SimulationResultsFeed>(
+      `/simulation/results?limit=${limit}${tenantId ? `&tenant_id=${encodeURIComponent(tenantId)}` : ""}`
+    ),
+  simulationScenarioDetail: (scenarioId: string) =>
+    getJsonOrNull<Scenario>(`/simulation/results/scenario/${encodeURIComponent(scenarioId)}`),
+  simulationCounterfactualDetail: (counterfactualId: string) =>
+    getJsonOrNull<Counterfactual>(`/simulation/results/counterfactual/${encodeURIComponent(counterfactualId)}`)
 };
 
 // Phase 7 (PHASE7-DEPLOYMENT.md Section 4): tenant-scoped, auth-gated

@@ -170,6 +170,24 @@ Everything through Phase 6 runs as one tenant against one local DuckDB file. Pha
 
 **Frontend.** `frontend/lib/auth.ts` decodes the session cookie's JWT claims (display/routing only - the signature is never re-verified client-side; every real authorization decision still happens on the backend) and `frontend/lib/tenant.ts` resolves which tenant is "current" (an admin's chosen tenant, via `components/TenantSwitcher.tsx` in the header, or simply your own tenant for every other role). `/login` and `/signup` (a two-step onboarding wizard: create workspace -> confirmation) proxy through Next.js Route Handlers (`app/api/auth/*`) that set httpOnly session cookies - the browser never holds a JWT directly. `/tenants` is the one dashboard backed by genuinely tenant-scoped data (GMV, health score, 7-day trend, daily order table); it explicitly does **not** retrofit tenant filtering onto `/retailers`, `/products`, `/orders`, `/compute`, `/monitoring`, or `/ml` - those dashboards' marts have no `tenant_id` column (only `orders` was carried through the tenant-aware pipeline above), so faking a filter there would either return nothing or fabricate tenant assignment for rows that were never tenant-scoped. What those dashboards get instead is the same global header indicator (`components/TenantSwitcher.tsx`, wired into `app/layout.tsx`) every page already shares.
 
+### Marketplace simulation & digital twin (Phase 8)
+
+Phase 8 adds a simulation layer on top of everything through Phase 7 - it reads the same warehouse and never writes to it except its own two result tables, and nothing about how an earlier phase runs changes.
+
+**Digital twin.** `simulation/digital_twin.py`'s `load_digital_twin()` builds a `DigitalTwinState` snapshot by reading the warehouse tables Phases 3-7 already populate (`marts.dim_retailer`/`dim_product`/`compute_retailer_health`/`compute_product_reorder_risk`, `anomalies.anomaly_events`, `ml.forecasts`/`clusters`/`recommendations`/`anomaly_classifications`) rather than standing up a second state store that could drift from the real one. `tenant_id=None` loads the full nine-dimension classic twin; `tenant_id=<id>` loads a narrower twin scoped to that tenant's own tables, with fields no per-tenant table backs left `None` rather than fabricated - the same documented gap `multi_tenant/tenant_manager.py` already notes for silo schemas. `DigitalTwinState.clone()` deep-copies the snapshot so simulation code can mutate freely without ever touching the real warehouse mid-run.
+
+**Agents.** `simulation/agents/` (`marketplace_agent.py`, `retailer_agent.py`, `product_agent.py`) model the marketplace, each retailer, and each product as an agent with its own strategy dataclass (pricing/inventory/promotion/fulfillment/anomaly-response for retailers; price elasticity/demand response/inventory decay for products; demand shocks/seasonal effects/category trends/competitor pressure marketplace-wide). `scenario_engine.py`'s `build_agents()` wires them together from real retailer-product order history and builds a fresh set - with its own `random.Random`, decaying demand multiplier, and category-trend walk - on every single simulation run; nothing agent-side is persisted between runs.
+
+**Scenarios.** `simulation/scenario_engine.py`'s `run_scenario()` covers all nine scenario types the spec asks for (`price_change`, `inventory_change`, `demand_shock`, `supply_chain_delay`, `retailer_outage`, `product_launch`, `promotion_event`, `competitor_entry`, `competitor_exit` - see `SCENARIO_PARAM_SCHEMA` for each type's params). Every run clones the twin into a baseline branch and a scenario branch with the *same* seed, applies the scenario mutation to the scenario branch only, runs both forward the identical number of ticks, and diffs the two - isolating the scenario's own effect from simulated noise rather than comparing against pre-scenario history. Outputs cover predicted GMV/velocity/inventory/retailer health plus two intentionally lightweight heuristic proxies - predicted cluster movement and predicted recommendations - that are not re-fits of `ml/models/clustering.py`/`recommendations.py`, documented as such rather than silently overclaimed. Results persist to `simulation.scenario_results` with a `scenario_simulated` lineage edge; an optional `retailer_strategy_overrides`/`product_strategy_overrides` param lets one run override a single agent's default strategy without touching the rest.
+
+**Counterfactuals.** `simulation/counterfactuals.py`'s `run_counterfactual()` covers four types - `remove_retailer_orders`, `remove_product_orders`, `modify_price`, `remove_anomaly_window` - by loading real `marts.fact_orders` rows, filtering/modifying them, re-aggregating actual vs. counterfactual, and replaying both forward through the same agent machinery `scenario_engine.py` uses. A retailer/product with zero matching orders in the window is a legitimate "changed nothing" answer, not an error; an unknown `anomaly_id` or type is. Counterfactuals hold each product's current `inventory_count` fixed at today's value rather than reconstructing what inventory would have looked like under retroactive divergence - a documented simplification, not an attempt at full historical replay. Results persist to `simulation.counterfactual_results` with a `counterfactual_simulated` lineage edge.
+
+**Orchestration.** `orchestration/simulation_flow.py`'s `run_simulation_flow()` loads the twin, previews the agent set, runs a plain seeded baseline projection (`scenario_engine.run_baseline_projection()`), then a batch of scenarios and a batch of counterfactuals - each isolated in its own try/except so one bad spec never blocks the rest, dispatching `simulation_scenario_failure`/`simulation_counterfactual_failure` alerts through the same `alerts/dispatcher.py` every earlier phase uses. Called with no arguments (`python orchestration/simulation_flow.py`, per Section 8), it derives a small illustrative batch from whatever real retailer/product/anomaly IDs are already in the twin rather than hardcoding fixture IDs that could silently no-op against a different warehouse. Every scenario/counterfactual run - success or failure - appends one row to `elt_model_runs` (`load_strategy='simulation_scenario'`/`'simulation_counterfactual'`), same audit convention as every other flow in this repo.
+
+**API.** `api/simulation_api.py` (mounted into `api/metrics_api.py` alongside the other routers, deliberately left open like `/ml`/`/monitoring`/`/realtime`) exposes `/simulation/run`, `/simulation/scenarios` (GET catalog / POST one ad-hoc run), `/simulation/counterfactuals` (same split), `/simulation/state`, `/simulation/agents`, and `/simulation/results` (plus per-id detail routes), with `/simulation/ws` / `/simulation/stream` diff-polling `simulation.scenario_results`/`simulation.counterfactual_results` for new rows every 2s, same pattern as `/realtime/ws`/`/monitoring/ws`/`/ml/ws`. Progress push is row-arrival granularity (a newly-completed scenario/counterfactual shows up), not a true intra-run percentage - each run resolves in one synchronous call with no natural mid-run checkpoint to report.
+
+**Frontend.** Five pages under `/simulation` (Overview, Scenarios, Counterfactuals, Agents, Results) follow the same Server Component + Live Mode pattern as `/ml`, with a plum accent (`components/simulation/SimulationTabs.tsx`). `DigitalTwinVisualizer` charts the current twin's top retailers/products and recent anomalies; `ScenarioBuilder`/`CounterfactualBuilder` render schema-driven forms straight off `GET /simulation/scenarios`/`/simulation/counterfactuals`'s param catalogs and POST directly to the API; `AgentStrategyEditor` is a read-only reference view of the default strategy fields (agents are never persisted, so there is nothing durable to edit here - overriding one for a single run happens inline in `ScenarioBuilder` instead); `SimulationTimeline` merges recent scenario/counterfactual runs by completion time; `SimulationResultCharts` renders one selected run's full detail.
+
 # Endpoints
 - `http://127.0.0.1:8000/docs`
 - `http://127.0.0.1:8000/health`
@@ -228,6 +246,15 @@ Everything through Phase 6 runs as one tenant against one local DuckDB file. Pha
 
 /observability endpoint (Phase 7 - see `observability/metrics.py`):
 - `GET http://127.0.0.1:8000/observability/metrics` - Prometheus exposition-format text, refreshed from the warehouse on every scrape.
+
+/simulation endpoints (Phase 8 - see `api/simulation_api.py`):
+- `POST http://127.0.0.1:8000/simulation/run` - runs the full Section 5 orchestrated batch (twin load, agent load, baseline projection, a scenario batch, a counterfactual batch); an empty body uses the same data-derived defaults as `python orchestration/simulation_flow.py`.
+- `GET`/`POST http://127.0.0.1:8000/simulation/scenarios` - the scenario type/param catalog, or run exactly one ad-hoc scenario (`scenario_engine.run_scenario()`).
+- `GET`/`POST http://127.0.0.1:8000/simulation/counterfactuals` - the counterfactual type/param catalog, or run exactly one ad-hoc counterfactual (`counterfactuals.run_counterfactual()`).
+- `GET http://127.0.0.1:8000/simulation/state` - the current digital twin snapshot (`simulation/digital_twin.py`'s `load_digital_twin()`).
+- `GET http://127.0.0.1:8000/simulation/agents` - default agent strategies plus the twin's retailer/product ID set.
+- `GET http://127.0.0.1:8000/simulation/results`, `/simulation/results/scenario/{scenario_id}`, `/simulation/results/counterfactual/{counterfactual_id}` - persisted run history and per-run detail.
+- `ws://127.0.0.1:8000/simulation/ws` / `http://127.0.0.1:8000/simulation/stream` - WebSocket/SSE push of new scenario/counterfactual results (same diff-poll pattern as `/realtime/ws`, `/monitoring/ws`, `/ml/ws`).
 
 ## Architecture
 
@@ -292,6 +319,19 @@ flowchart LR
   obsmetrics --> prometheus["Prometheus / Grafana"]
   api -.structured logs.-> obslogs["Loki (via Promtail)"]
   api -.spans.-> obstrace["Jaeger"]
+  warehouse -.snapshot.-> simtwin["simulation/digital_twin.py"]
+  anomalytable -.snapshot.-> simtwin
+  mltables -.snapshot.-> simtwin
+  simtwin --> simagents["simulation/agents/*"]
+  simagents --> simscenario["scenario_engine.py"]
+  simagents --> simcf["counterfactuals.py"]
+  simscenario --> simscenariotbl["simulation.scenario_results"]
+  simcf --> simcftbl["simulation.counterfactual_results"]
+  simscenario -.spec failure.-> alertdispatch
+  simcf -.spec failure.-> alertdispatch
+  simscenariotbl --> simapi["/simulation WebSocket + SSE"]
+  simcftbl --> simapi
+  simapi --> frontend
 ```
 
 ## Repository Map
@@ -328,6 +368,13 @@ flowchart LR
 - `observability/`: Phase 7 metrics (`metrics.py` - hand-rolled Prometheus client), structured logging (`logging.py`), and tracing (`tracing.py` - OpenTelemetry, optional).
 - `infra/cloud/`: Phase 7 deployment - Dockerfiles, `docker-compose.cloud.yaml` / `docker-compose.observability.yaml`, Terraform modules, `fly.toml`/`render.yaml`/`azure-container-apps.*.yaml`, `api_gateway.yaml`, `deploy.sh`, `ci_cd.yaml` - see "Cloud deployment & multi-tenant mode" above.
 - `frontend/lib/auth.ts`, `frontend/lib/tenant.ts`, `frontend/app/login/`, `frontend/app/signup/`, `frontend/app/tenants/`, `frontend/components/TenantSwitcher.tsx`, `frontend/app/api/auth/*`: Phase 7's frontend auth/tenant layer - see "Cloud deployment & multi-tenant mode" above.
+- `simulation/digital_twin.py`: Phase 8 digital twin snapshot builder (`load_digital_twin()`) - reads existing warehouse/anomaly/ML tables rather than duplicating state; `DigitalTwinState.clone()` for in-memory mutation.
+- `simulation/agents/`: Phase 8 agent-based modeling layer - `marketplace_agent.py`, `retailer_agent.py`, `product_agent.py`; built fresh per simulation run via `scenario_engine.build_agents()`, never persisted.
+- `simulation/scenario_engine.py`: Phase 8 what-if simulator (`run_scenario()`, nine scenario types) - baseline-vs-scenario clone/diff on the same seed; results in `simulation.scenario_results`.
+- `simulation/counterfactuals.py`: Phase 8 counterfactual replay (`run_counterfactual()`, four types) - filters/modifies real `marts.fact_orders` rows and replays agents forward; results in `simulation.counterfactual_results`.
+- `orchestration/simulation_flow.py`: Phase 8 orchestration entry point (`run_simulation_flow()`) - see "Marketplace simulation & digital twin" above.
+- `api/simulation_api.py`: Phase 8 REST + WebSocket/SSE layer for scenarios/counterfactuals/state/agents/results, mounted into `api/metrics_api.py` alongside the other routers.
+- `frontend/app/simulation/`, `frontend/components/simulation/`: Phase 8's simulation dashboards (Overview, Scenarios, Counterfactuals, Agents, Results) - see "Live Mode" below.
 
 ## Reliability Notes
 
@@ -351,3 +398,5 @@ With the API running (`uvicorn api.metrics_api:app --reload`) and at least one s
 The five `/monitoring/*` pages (index, `/monitoring/anomalies`, `/monitoring/system`, `/monitoring/schema-drift`, `/monitoring/alerts`) reuse the same Live Mode ON/OFF preference but open their own `/monitoring/ws` connection instead of `/realtime/ws` - its topic set (anomalies/alerts/system metrics/schema drift) is unrelated to the pipeline topics the app-wide socket carries, so it only connects while a monitoring page is actually mounted. Each page shows anomaly/drift/metric/alert history as charts and tables with severity indicators, lineage references, and timestamps; run `orchestration.realtime_flow` (see "Monitoring, anomalies, and alerts" above) to see them populate live, since that's what actually runs the monitoring pass.
 
 The six `/ml/*` pages (Overview, `/ml/forecasts`, `/ml/clusters`, `/ml/recommendations`, `/ml/anomalies`, `/ml/models`) follow the identical pattern with their own `/ml/ws` connection: ForecastChart plots each forecast series with its confidence band, ClusterMap renders retailer/product segments on the PCA-reduced 2D scatter `ml/models/clustering.py` computes, RecommendationList groups recommendation edges by source entity, AnomalyClassificationTable shows the ML classifier's predicted type alongside Phase 5's rule-based `anomaly_type` with an agree/disagree badge, and ModelRegistryTable shows every model version's status (active/inactive/superseded/rolled_back) and eval metrics. Run `orchestration/ml_training_flow.py` then `orchestration/ml_inference_flow.py` (see "ML layer" above) to see these populate.
+
+The five `/simulation/*` pages (Overview, `/simulation/scenarios`, `/simulation/counterfactuals`, `/simulation/agents`, `/simulation/results`) follow the same pattern with their own `/simulation/ws` connection: DigitalTwinVisualizer charts the current twin's top retailers/products and recent anomalies, ScenarioBuilder/CounterfactualBuilder render forms driven directly off each catalog endpoint's param schema and POST ad-hoc runs, AgentStrategyEditor shows the default strategy fields every agent starts from (read-only - agents are never persisted, so there's nothing durable to edit), and SimulationTimeline/SimulationResultCharts show recent runs and one run's full detail. Run `python orchestration/simulation_flow.py` (see "Marketplace simulation & digital twin" above) to see these populate, or use ScenarioBuilder/CounterfactualBuilder to trigger an ad-hoc run directly from the dashboard.

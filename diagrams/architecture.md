@@ -63,6 +63,19 @@ flowchart TD
   OBM --> PROM["Prometheus / Grafana"]
   API -.structured logs.-> OBL["Loki (via Promtail)"]
   API -.spans.-> OBT["Jaeger"]
+  W -.snapshot.-> TWIN["simulation/digital_twin.py"]
+  ADT -.snapshot.-> TWIN
+  MLT -.snapshot.-> TWIN
+  TWIN --> AGENTS["simulation/agents/*"]
+  AGENTS --> SCEN["scenario_engine.py"]
+  AGENTS --> CF["counterfactuals.py"]
+  SCEN --> SCENT["simulation.scenario_results"]
+  CF --> CFT["simulation.counterfactual_results"]
+  SCEN -.spec failure.-> ALD
+  CF -.spec failure.-> ALD
+  SCENT --> SIMAPI["/simulation WebSocket + SSE"]
+  CFT --> SIMAPI
+  SIMAPI --> FE
 ```
 
 Phase 4 (`PHASE4-REALTIME&STREAMING.md`) adds the dashed edges: `stream_generator.py` produces events continuously (into Mongo or local files), `mongo_change_stream.py` watches MongoDB for changes in real time, `realtime_flow.py` detects new work from either path and triggers a debounced staging/marts/compute refresh, and `/realtime`'s WebSocket/SSE layer pushes the resulting ingestion/ELT/compute/lineage updates to the frontend's Live Mode.
@@ -72,3 +85,5 @@ Phase 5 (`PHASE5-MONITORING.md`) adds the monitoring layer, which rides along in
 Phase 6 (`PHASE6-ML.md`) adds the ML layer on top of Phase 5's statistical monitoring, as two standalone entry points rather than another stage inside `realtime_flow.py`'s cycle (training is comparatively expensive - refitting several models - so it runs on its own cadence, not on every debounced refresh). `ml/features/build_features.py` reads `marts.*` and `anomalies.anomaly_events` into a shared `ml.features` store; `ml_training_flow.py` builds features, trains and evaluates all four model types (forecasting, clustering, recommendations, the anomaly classifier), and registers/promotes/rolls back versions in `ml.model_registry` (`ml/registry.py`) based on each type's eval metric versus the currently active version; `ml_inference_flow.py` loads whichever version is active per model type and refreshes `ml.forecasts` / `ml.clusters` / `ml.recommendations` / `ml.anomaly_classifications`, meant to run far more often than training since it's just inference, not a refit. Both flows isolate each model type in its own try/except (one bad model type never blocks the others) and dispatch `ml_training_failure`/`ml_inference_failure` alerts through the same `alerts/dispatcher.py` Phase 5 established. `api/ml_api.py`'s `/ml` WebSocket/SSE layer pushes new forecasts, clusters, recommendations, and anomaly classifications to the same Next.js Live Mode frontend, on the six `/ml/*` pages.
 
 Phase 7 (`PHASE7-DEPLOYMENT.md`) adds two things that don't change any of the above: a parallel, opt-in tenant pipeline, and a deployment/observability layer around the whole app. `auth/auth_api.py` issues JWTs against `multi_tenant/tenant_manager.py`'s tenant registry; `ingestion/tenant_ingest.py` tags records with `tenant_id` generically across every entity type, but only `orders` is carried further, through `tenant_elt.sql` -> `compute/polars/tenant_metrics.py` -> the `/tenants` API `api/tenant_api.py` exposes (auth-gated, unlike every route above it). This is deliberately not a second copy of the Phase 3-6 pipeline - it's a narrower, orders-only path that coexists with the single-tenant one, which keeps running exactly as it did through Phase 6. Separately, `observability/metrics.py` exposes a `/observability/metrics` Prometheus endpoint (re-reading tables the pipeline above already populates, not a second collection layer), `observability/logging.py` structures every process's stdout as JSON for Loki/Promtail to scrape, and `observability/tracing.py` wraps OpenTelemetry (optional) around API requests, exporting to Jaeger. `infra/cloud/` packages all of the above - and everything from Phase 1 on - into Dockerfiles, Terraform, and platform-specific deploy manifests; none of it changes what runs when you follow this repo's own Quick Start.
+
+Phase 8 (`PHASE8-SIMULATION.md`) adds a simulation layer that reads the warehouse/anomaly/ML state every earlier phase already builds, rather than a second parallel pipeline: `simulation/digital_twin.py` snapshots it into a `DigitalTwinState`, `simulation/agents/*` builds a fresh marketplace/retailer/product agent set from it on every run (never persisted), and `scenario_engine.py`/`counterfactuals.py` clone that twin to run forward - a scenario clones baseline-vs-scenario branches on the same seed and diffs them, a counterfactual filters/modifies real `marts.fact_orders` rows and replays agents from the point of divergence. `orchestration/simulation_flow.py` is the `python orchestration/simulation_flow.py` entry point Section 8 asks for: load twin -> baseline projection -> a scenario batch -> a counterfactual batch, each spec isolated in its own try/except and appending to `elt_model_runs` regardless of outcome, dispatching `simulation_scenario_failure`/`simulation_counterfactual_failure` through the same `alerts/dispatcher.py` on failure. `api/simulation_api.py`'s `/simulation` WebSocket/SSE layer pushes new scenario/counterfactual results to the same Next.js Live Mode frontend, on the five `/simulation/*` pages.

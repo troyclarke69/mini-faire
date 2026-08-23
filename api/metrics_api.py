@@ -11,6 +11,7 @@ from api.db import query
 from api.ml_api import router as ml_router
 from api.monitoring_api import router as monitoring_router
 from api.realtime_api import router as realtime_router
+from api.simulation_api import router as simulation_router
 from api.tenant_api import router as tenant_router
 from auth.auth_api import router as auth_router
 from auth.auth_middleware import RateLimitMiddleware
@@ -60,6 +61,7 @@ app.include_router(monitoring_router)
 app.include_router(ml_router)
 app.include_router(auth_router)
 app.include_router(tenant_router)
+app.include_router(simulation_router)
 
 
 # ingestion/duckdb_utils.py's connect_with_retry() already absorbs a *brief*

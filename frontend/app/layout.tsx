@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Activity, AlertTriangle, Boxes, Brain, Building2, GitBranch, Home, Package, ReceiptText, ServerCog, ShieldAlert } from "lucide-react";
+import { Activity, AlertTriangle, Boxes, Brain, Building2, FlaskConical, GitBranch, Home, Package, ReceiptText, ServerCog, ShieldAlert } from "lucide-react";
 import "./globals.css";
 import { LiveModeProvider } from "@/components/LiveModeProvider";
 import { LiveModeToggle } from "@/components/LiveModeToggle";
@@ -27,6 +27,10 @@ const navItems = [
   { href: "/model-runs", label: "Model Runs", icon: ServerCog },
   { href: "/monitoring", label: "Monitoring", icon: AlertTriangle },
   { href: "/ml", label: "ML", icon: Brain },
+  // Phase 8 (PHASE8-SIMULATION.md Section 7) - digital twin, ABM
+  // scenarios, and counterfactual replay. Open like /ml and /monitoring
+  // (no tenant gating - see api/simulation_api.py's module docstring).
+  { href: "/simulation", label: "Simulation", icon: FlaskConical },
   // Phase 7 (PHASE7-DEPLOYMENT.md Section 2/4) - the one nav item backed by
   // genuinely tenant-scoped data (marts.compute_tenant_health /
   // marts.metrics_tenant_daily), gated behind login inside the page itself

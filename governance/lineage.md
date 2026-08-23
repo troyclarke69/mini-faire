@@ -290,6 +290,36 @@ Source file (any entity, any tenant) -> `ingest_tenant_file()` validates via the
 
 `monitoring.system_metrics` / `elt_model_runs` / `anomalies.anomaly_events` / `marts.compute_tenant_health` -> `refresh_from_warehouse()` (re-exposes existing values, does not recompute them) -> `GET /observability/metrics` (Prometheus exposition format) -> Prometheus -> Grafana. Every process's stdout (JSON, via `configure_json_logging()`) -> Promtail -> Loki -> Grafana. `api/metrics_api.py` request spans (via `observability/tracing.py`'s middleware, when the `observability` extra is installed) -> Jaeger.
 
+## Phase 8 Simulation & Digital Twin Lineage
+
+Phase 8 (`PHASE8-SIMULATION.md`) adds a simulation layer that reads the warehouse/anomaly/ML tables every earlier phase already builds as its input snapshot, the same "read existing state as input, don't duplicate it" posture Phase 6's ML lineage takes toward the warehouse. Both new tables live in the `simulation` schema (`simulation.scenario_results`, `simulation.counterfactual_results`), created defensively by their owning module on first use, same convention as `monitoring`/`anomalies`/`ml`/`tenant`.
+
+**Digital twin snapshot** (`simulation/digital_twin.py`'s `load_digital_twin()`, called at the start of every scenario/counterfactual/orchestrated run - never persisted itself, purely an in-memory read):
+
+`marts.dim_retailer` / `marts.dim_product` / `marts.compute_retailer_health` / `marts.compute_product_reorder_risk` / `anomalies.anomaly_events` / `ml.forecasts` / `ml.clusters` / `ml.recommendations` / `ml.anomaly_classifications` (classic twin, `tenant_id=None`) or `marts.fact_tenant_orders` / `marts.metrics_tenant_daily` / `marts.compute_tenant_health` / `marts.compute_tenant_growth` (tenant twin, `tenant_id=<id>`, narrower - see that module's docstring for which fields go `None` rather than fabricated)
+-> `DigitalTwinState` (in-memory only; `clone()` deep-copies for any downstream mutation)
+
+**Agent construction** (`simulation/scenario_engine.py`'s `build_agents()`, called fresh inside every single run - agents are never persisted, so there is no `agent_built`-style table or lineage edge for this step, only the scenario/counterfactual edges below that consume the agents' output):
+
+`DigitalTwinState` + `marts.fact_orders`/`marts.fact_tenant_orders` (retailer-product order history, to wire each `RetailerAgent` to the products it actually carries)
+-> one `MarketplaceAgent`, one `RetailerAgent` per retailer, one `ProductAgent` per product (`simulation/agents/*.py`), each with its own `random.Random` seeded from the run's seed
+
+**Scenario simulation** (`simulation/scenario_engine.py`'s `run_scenario()`, one of nine `SCENARIO_TYPES`):
+
+`DigitalTwinState.clone()` x2 (baseline branch, scenario branch, same seed) -> scenario mutation applied to the scenario branch only (`_apply_scenario_setup()`) -> both branches run forward identically via `_run_ticks()` -> diff (GMV/velocity/inventory/retailer health, plus the two documented heuristic proxies `_cluster_movement()`/`_predicted_recommendations()` - not re-fits of `ml/models/clustering.py`/`recommendations.py`) -> `ScenarioResult` -> `persist_scenario_result()` -> `simulation.scenario_results` (`scenario_simulated` edge)
+
+**Counterfactual replay** (`simulation/counterfactuals.py`'s `run_counterfactual()`, one of four `COUNTERFACTUAL_TYPES`):
+
+`marts.fact_orders` (real historical rows, optionally date-windowed) -> `_apply_counterfactual_filter()` (remove/modify, never mutates the source rows) -> `_aggregate_retailers()`/`_aggregate_products()` (actual vs. counterfactual) -> `_diff_retailer_aggregates()`/`_diff_product_aggregates()` -> `_build_twin_from_aggregates()` x2 (joined onto `marts.dim_retailer`/`dim_product` for descriptive fields; each product's `inventory_count` held at today's current value - a documented simplification, not retroactive reconstruction) -> both twins replayed forward via `scenario_engine.build_agents()`/`_run_ticks()` -> `CounterfactualResult` -> `persist_counterfactual_result()` -> `simulation.counterfactual_results` (`counterfactual_simulated` edge)
+
+**Orchestration** (`orchestration/simulation_flow.py`'s `run_simulation_flow()` - the `python orchestration/simulation_flow.py` entry point Section 8 asks for):
+
+`load_digital_twin()` -> agent preview (count only, not reused for the runs below) -> `scenario_engine.run_baseline_projection()` (a plain seeded forward projection, no scenario mutation - not persisted, logged only) -> a batch of `run_scenario()` calls (data-derived defaults, or explicit specs from a caller) -> a batch of `run_counterfactual()` calls (same) -> one `elt_model_runs` row per scenario/counterfactual attempt regardless of outcome (`load_strategy='simulation_scenario'`/`'simulation_counterfactual'`, `model_name`=the specific scenario_type/counterfactual_type) -> on any individual spec's failure, `simulation_scenario_failure`/`simulation_counterfactual_failure` dispatched through `alerts/dispatcher.py` (the same one every earlier phase uses), without blocking the rest of the batch
+
+**Serving** (`api/simulation_api.py`, open by default like `/ml`/`/monitoring`/`/realtime` - `api/tenant_api.py`'s docstring already notes those three stay open):
+
+`simulation.scenario_results` / `simulation.counterfactual_results` -> `GET /simulation/results`, `/simulation/results/scenario/{id}`, `/simulation/results/counterfactual/{id}` -> the frontend's `/simulation/results` page. `POST /simulation/scenarios` / `/simulation/counterfactuals` -> `run_scenario()`/`run_counterfactual()` directly (the interactive, single-run counterpart to `/simulation/run`'s batch). `/simulation/ws` / `/simulation/stream` diff-poll both result tables by `completed_at` every 2s (same pattern as `/realtime/ws`/`/monitoring/ws`/`/ml/ws`) and push new rows to the frontend's five `/simulation/*` pages - progress push is row-arrival granularity (a completed run shows up), not a true intra-run percentage, since each run resolves in one synchronous call with no natural mid-run checkpoint to report.
+
 ## Quarantine Handling
 
 Invalid records are never dropped. They are written to the matching quarantine path with:
@@ -445,3 +475,11 @@ Incremental correctness checks:
 - ML orchestration (Phase 6): `orchestration/ml_training_flow.py`, `orchestration/ml_inference_flow.py`
 - ML API (Phase 6): `api/ml_api.py`
 - Runtime ML tables (Phase 6): `ml.features`, `ml.model_registry`, `ml.forecasts`, `ml.clusters`, `ml.recommendations`, `ml.anomaly_classifications`
+- Digital twin (Phase 8): `simulation/digital_twin.py`
+- Agent-based modeling (Phase 8): `simulation/agents/marketplace_agent.py`, `simulation/agents/retailer_agent.py`, `simulation/agents/product_agent.py`
+- Scenario engine (Phase 8): `simulation/scenario_engine.py`
+- Counterfactual engine (Phase 8): `simulation/counterfactuals.py`
+- Simulation orchestration (Phase 8): `orchestration/simulation_flow.py`
+- Simulation API (Phase 8): `api/simulation_api.py`
+- Runtime simulation tables (Phase 8): `simulation.scenario_results`, `simulation.counterfactual_results`
+- Simulation frontend (Phase 8): `frontend/app/simulation/`, `frontend/components/simulation/`, `frontend/lib/simulationRealtime.ts`
