@@ -70,7 +70,7 @@ from typing import Any
 from ingestion.duckdb_utils import connect_with_retry
 from ingestion.metadata import LineageEdge, upsert_lineage_edges, utc_now
 from ingestion.paths import DUCKDB_PATH
-from simulation.digital_twin import DigitalTwinState, MLPredictionSnapshot, ProductState, RetailerState
+from simulation.digital_twin import DigitalTwinState, MLPredictionSnapshot, ProductState, RetailerState, _to_float
 from simulation.scenario_engine import (
     _cluster_movement,
     _predicted_anomalies,
@@ -436,8 +436,18 @@ def _build_twin_from_aggregates(
             product_name=name,
             product_category=category,
             brand_id=brand_id,
-            unit_price=unit_price,
-            unit_cost=unit_cost,
+            # unit_price/unit_cost come straight off marts.dim_product's
+            # decimal(12, 2) columns - DuckDB returns those as
+            # decimal.Decimal, not float, even though ProductState declares
+            # both float | None. Normalize here via digital_twin.py's
+            # _to_float() (same helper _load_classic_twin()'s _row_to_
+            # product() uses), or a scenario/counterfactual replay involving
+            # this twin dies downstream in product_agent.py's elasticity
+            # exponent / retailer_agent.py's promotion discount with
+            # `TypeError: unsupported operand type(s) for ** or pow():
+            # 'decimal.Decimal' and 'float'`.
+            unit_price=_to_float(unit_price),
+            unit_cost=_to_float(unit_cost),
             inventory_count=inventory_count,
             is_active=is_active,
             units_sold=int(agg.get("units_sold", 0)),

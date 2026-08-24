@@ -60,6 +60,26 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _to_float(value: Any) -> float | None:
+    """DuckDB returns `decimal(N, 2)` columns (`unit_price`/`unit_cost` on
+    `marts.dim_product`, etc.) as Python `decimal.Decimal` objects, not
+    floats - even though every numeric field on `RetailerState`/`ProductState`
+    below is typed `float | None`. Mixing a raw `Decimal` into ordinary float
+    arithmetic downstream (`product_agent.py`'s `price_ratio ** elasticity`,
+    `retailer_agent.py`'s `price *= 1.0 - promotion_discount`) raises
+    `TypeError: unsupported operand type(s) for ** or pow(): 'decimal.
+    Decimal' and 'float'` (or the `*=` equivalent) - so every DECIMAL-sourced
+    numeric value is normalized to a plain float once, right here at the
+    warehouse boundary, rather than leaving each downstream call site to
+    guard against a type the dataclass already claims can't occur. Same
+    posture `counterfactuals.py`'s `_apply_counterfactual_filter()`/
+    `_aggregate_retailers()` already take for `gross_amount`/`net_amount`/
+    `estimated_profit`."""
+    if value is None:
+        return None
+    return float(value)
+
+
 @dataclass
 class ProductState:
     product_id: str
@@ -243,9 +263,9 @@ def _row_to_retailer(row: dict) -> RetailerState:
         status=row.get("status"),
         order_count=int(row.get("order_count") or 0),
         net_revenue=float(row.get("net_revenue") or 0.0),
-        estimated_profit=row.get("estimated_profit"),
+        estimated_profit=_to_float(row.get("estimated_profit")),
         last_order_ts=row.get("last_order_ts"),
-        retailer_health_score=row.get("retailer_health_score"),
+        retailer_health_score=_to_float(row.get("retailer_health_score")),
     )
 
 
@@ -255,13 +275,13 @@ def _row_to_product(row: dict, velocity_by_id: dict[str, float]) -> ProductState
         product_name=row.get("product_name"),
         product_category=row.get("product_category"),
         brand_id=row.get("brand_id"),
-        unit_price=row.get("unit_price"),
-        unit_cost=row.get("unit_cost"),
+        unit_price=_to_float(row.get("unit_price")),
+        unit_cost=_to_float(row.get("unit_cost")),
         inventory_count=row.get("inventory_count"),
         is_active=row.get("is_active"),
         units_sold=int(row.get("units_sold") or 0),
         inventory_velocity=velocity_by_id.get(row["product_id"]),
-        reorder_risk_score=row.get("reorder_risk_score"),
+        reorder_risk_score=_to_float(row.get("reorder_risk_score")),
         reorder_risk_band=row.get("reorder_risk_band"),
         last_sold_at=row.get("last_sold_at"),
     )

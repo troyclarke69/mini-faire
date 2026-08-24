@@ -6,9 +6,29 @@ velocity curve - as a single `expected_demand()` computation per tick, since
 in a constant-elasticity demand model those four things are naturally one
 formula rather than four independent knobs (see `expected_demand()`'s
 docstring for the exact shape). `retailer_agent.py` calls `step()`, which
-both returns that tick's demand AND applies inventory decay directly to the
-twin - the two things a product genuinely does every tick regardless of
-which retailer is selling it.
+both converts that tick's demand into a whole-unit order quantity AND
+applies inventory decay directly to the twin - the two things a product
+genuinely does every tick regardless of which retailer is selling it.
+
+`step()` accumulates fractional demand across calls (`_demand_accumulator`)
+rather than rounding `expected_demand()`'s raw float to the nearest whole
+unit on every single call. This demo's synthetic order volume typically
+puts `expected_demand()` well under 1.0 per retailer-product-tick, so a
+scenario/counterfactual mutation that shifts demand by, say, 40% (0.98 ->
+1.39) would otherwise round to the *same* integer quantity every tick
+(`round(0.98)==round(1.39)==1`) and silently vanish from `total_gmv()` -
+exactly what made `demand_shock`/`competitor_entry` scenarios read as an
+exact $0.00 GMV delta even though the underlying demand computation was
+genuinely, correctly diverging from baseline. Carrying the leftover
+fraction forward instead means a persistently elevated (or depressed)
+demand signal reliably crosses a whole-unit threshold within a few ticks,
+the same way a real fractional arrival rate would, rather than depending on
+luck each individual tick. Since a `ProductAgent` can be `step()`-ed by more
+than one `RetailerAgent` in the same tick (multiple retailers carrying the
+same product - see `scenario_engine.py`'s `build_agents()`), the
+accumulator is shared marketplace-wide for this product rather than
+per-retailer, consistent with `expected_demand()` itself having no
+retailer-specific term.
 """
 
 from __future__ import annotations
@@ -63,6 +83,12 @@ class ProductAgent:
         # rather than "no different from where it started".
         self.reference_price = reference_price
         self.reference_velocity = reference_velocity
+        # Unclaimed fractional demand carried forward from previous step()
+        # calls - see module docstring's "accumulates fractional demand"
+        # section. Always starts at 0.0: agents are built fresh per
+        # simulation run (never persisted - see scenario_engine.py's
+        # build_agents()), so there is no cross-run state to restore.
+        self._demand_accumulator: float = 0.0
 
     def expected_demand(self, twin: DigitalTwinState, conditions: MarketplaceConditions) -> float:
         """Constant-elasticity demand curve: `demand = base * (price /
@@ -104,12 +130,25 @@ class ProductAgent:
         )
         return max(0.0, demand)
 
-    def step(self, twin: DigitalTwinState, conditions: MarketplaceConditions) -> float:
+    def step(self, twin: DigitalTwinState, conditions: MarketplaceConditions) -> int:
+        """Returns a whole-unit order quantity for this call, NOT
+        `expected_demand()`'s raw float directly - see module docstring for
+        why. `expected_demand()`'s continuous value is added to
+        `_demand_accumulator`; whatever whole-unit portion has accumulated
+        (0 most calls, occasionally more than 1 if demand has been running
+        persistently high) is emitted and subtracted back out, leaving any
+        remaining fraction for the next call - so demand is never lost, only
+        deferred until enough of it has accumulated to represent a real
+        unit."""
         demand = self.expected_demand(twin, conditions)
+        self._demand_accumulator += demand
+        quantity = int(self._demand_accumulator)
+        self._demand_accumulator -= quantity
+
         if self.strategy.inventory_decay_rate:
             product = twin.products.get(self.product_id)
             if product is not None and product.inventory_count:
                 decay_units = int(round(product.inventory_count * self.strategy.inventory_decay_rate))
                 if decay_units > 0:
                     twin.apply_inventory_delta(self.product_id, -decay_units)
-        return demand
+        return quantity

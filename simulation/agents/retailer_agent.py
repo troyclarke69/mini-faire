@@ -7,13 +7,14 @@ retailer/product co-occurrence rather than a fabricated full assortment - no
 retailer-catalog table exists in this repo yet, so "which retailer carries
 which product" is inferred from order history, not invented).
 
-Each tick, a retailer agent asks its product agents how much demand exists,
-converts that into a transacted quantity capped by on-hand inventory, prices
-it (applying a promotion discount if this tick's promotion strategy fires),
-and writes the resulting order onto the twin via `DigitalTwinState.
-apply_order()`. The five named strategies below are not five separate code
-paths - they're knobs on this one per-tick decision (see each field's
-docstring for which part of the decision it changes), matching
+Each tick, a retailer agent asks its product agents for a whole-unit demand
+quantity (product_agent.py's `step()` handles the fractional-demand
+accumulation itself - see that module's docstring), caps it by on-hand
+inventory, prices it (applying a promotion discount if this tick's
+promotion strategy fires), and writes the resulting order onto the twin via
+`DigitalTwinState.apply_order()`. The five named strategies below are not
+five separate code paths - they're knobs on this one per-tick decision (see
+each field's docstring for which part of the decision it changes), matching
 `digital_twin.py`'s existing "one coherent state, many read/write angles"
 shape rather than a strategy per behavior.
 
@@ -128,8 +129,11 @@ class RetailerAgent:
             if product is None or product.unit_price is None:
                 continue
 
-            demand = product_agent.step(twin, conditions)
-            quantity = int(round(demand))
+            # product_agent.step() already returns a whole-unit quantity
+            # (its own fractional demand accumulator, not a per-call
+            # round() - see product_agent.py's module docstring for why),
+            # so no rounding happens here.
+            quantity = product_agent.step(twin, conditions)
             if quantity <= 0:
                 continue
             if product.inventory_count is not None:

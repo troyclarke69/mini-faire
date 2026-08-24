@@ -140,4 +140,14 @@ include = [
   # storage/database/observability land later in this same phase - added
   # together here rather than three more one-line follow-up edits.
   "multi_tenant*", "auth*", "storage*", "database*", "observability*",
+  # Phase 8 (PHASE8-SIMULATION.md): simulation/ (digital_twin.py,
+  # scenario_engine.py, counterfactuals.py, agents/) is this phase's new
+  # top-level package - without it here, `pip install -e ".[dev]"` never
+  # registers it as importable, so `orchestration/simulation_flow.py`'s
+  # `from simulation.counterfactuals import ...` (and every other
+  # `simulation.*` import) fails with `ModuleNotFoundError: No module named
+  # 'simulation'` even though the directory and its `__init__.py` both exist
+  # on disk - same class of gap this comment already documents for
+  # alerts/anomalies/monitoring/ml above, just caught later.
+  "simulation*",
 ]
