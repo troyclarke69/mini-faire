@@ -1,8 +1,12 @@
 import type {
+  AgentActionsFeed,
+  AgentConflictsFeed,
+  AgentPerformanceFeed,
   AgentStrategy,
   AlertEvent,
   AnomalyClassification,
   AnomalyEvent,
+  AutonomyState,
   BrandContribution,
   Cluster,
   ComputeModelRun,
@@ -160,7 +164,45 @@ export const api = {
   simulationScenarioDetail: (scenarioId: string) =>
     getJsonOrNull<Scenario>(`/simulation/results/scenario/${encodeURIComponent(scenarioId)}`),
   simulationCounterfactualDetail: (counterfactualId: string) =>
-    getJsonOrNull<Counterfactual>(`/simulation/results/counterfactual/${encodeURIComponent(counterfactualId)}`)
+    getJsonOrNull<Counterfactual>(`/simulation/results/counterfactual/${encodeURIComponent(counterfactualId)}`),
+  // Phase 9 (PHASE9-AUTONOMY.md Section 8 / api/autonomy_api.py). Left
+  // unauthenticated like the ML/monitoring/simulation fetchers above (same
+  // "no require_tenant() gate" posture that module's docstring documents) -
+  // `tenantId` is optional and threads straight through to
+  // agent_flow.run_agent_flow(tenant_id=...)/load_digital_twin(tenant_id=...).
+  // Each of these returns a small wrapper object ({"actions": [...]} etc.),
+  // not a bare array - like monitoringHealth()/streamingStatus() above,
+  // getJson()'s shared `[] as T` fallback just means every field reads as
+  // `undefined` through optional chaining if the call fails; every consumer
+  // below is written to handle that.
+  autonomyState: (tenantId?: string) =>
+    getJson<AutonomyState>(`/autonomy/state${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ""}`),
+  autonomyActions: (tenantId?: string, limit = 100) =>
+    getJson<AgentActionsFeed>(
+      `/autonomy/actions?limit=${limit}${tenantId ? `&tenant_id=${encodeURIComponent(tenantId)}` : ""}`
+    ),
+  autonomyPricing: (tenantId?: string, limit = 50) =>
+    getJson<AgentActionsFeed>(
+      `/autonomy/pricing?limit=${limit}${tenantId ? `&tenant_id=${encodeURIComponent(tenantId)}` : ""}`
+    ),
+  autonomyInventory: (tenantId?: string, limit = 50) =>
+    getJson<AgentActionsFeed>(
+      `/autonomy/inventory?limit=${limit}${tenantId ? `&tenant_id=${encodeURIComponent(tenantId)}` : ""}`
+    ),
+  autonomyDemand: (tenantId?: string, limit = 50) =>
+    getJson<AgentActionsFeed>(
+      `/autonomy/demand?limit=${limit}${tenantId ? `&tenant_id=${encodeURIComponent(tenantId)}` : ""}`
+    ),
+  autonomyAnomalies: (tenantId?: string, limit = 50) =>
+    getJson<AgentActionsFeed>(
+      `/autonomy/anomalies?limit=${limit}${tenantId ? `&tenant_id=${encodeURIComponent(tenantId)}` : ""}`
+    ),
+  autonomyRetailerStrategy: (tenantId?: string, limit = 50) =>
+    getJson<AgentActionsFeed>(
+      `/autonomy/retailer-strategy?limit=${limit}${tenantId ? `&tenant_id=${encodeURIComponent(tenantId)}` : ""}`
+    ),
+  autonomyConflicts: (limit = 50) => getJson<AgentConflictsFeed>(`/autonomy/conflicts?limit=${limit}`),
+  autonomyPerformance: () => getJson<AgentPerformanceFeed>("/autonomy/performance")
 };
 
 // Phase 7 (PHASE7-DEPLOYMENT.md Section 4): tenant-scoped, auth-gated

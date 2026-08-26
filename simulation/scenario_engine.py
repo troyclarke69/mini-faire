@@ -338,6 +338,74 @@ def run_baseline_projection(
     }
 
 
+def advance_twin(
+    twin: DigitalTwinState, *, ticks: int = 1, seed: int = 42, db_path: Path = DUCKDB_PATH,
+    retailer_strategy_overrides: dict[str, RetailerStrategy] | None = None,
+) -> None:
+    """Advances `twin` forward `ticks` seeded steps IN PLACE - unlike
+    `run_baseline_projection()` above, which clones first and leaves the
+    original untouched, this mutates the twin the caller already holds.
+    Built for `orchestration/agent_flow.py`'s PHASE9-AUTONOMY.md Section 1
+    "per simulation tick (digital-twin mode)" run mode: that flow interleaves
+    autonomous-agent decision rounds with real marketplace-simulation ticks
+    on the *same* evolving twin, so an agent's tick-N decision (e.g. a price
+    change) is still in effect - and can compound with organic ABM activity -
+    when tick N+1 runs, rather than each tick starting over from a fresh
+    clone of the original snapshot. Builds a fresh agent set per call, same
+    "agents are never reused across calls" posture as everywhere else in
+    this module (see `build_agents()`'s docstring) - this does mean an
+    agent's own per-call mutable state (category-trend walk, demand decay)
+    does not persist between `advance_twin()` calls, only what actually
+    landed on the twin itself does, which is the same "the twin is the only
+    durable state" model this whole module already commits to.
+
+    `retailer_strategy_overrides` (see `build_agents()`) is this function's
+    one addition beyond a plain "run it forward" call - `autonomy/
+    retailer_strategy_agent.py` is the first real caller: unlike every other
+    autonomy agent module, a retailer-strategy decision has no `DigitalTwinState`
+    field to mutate at all (`RetailerStrategy` lives entirely in this
+    module's ABM agent layer, rebuilt fresh every run - see
+    `simulation/agents/retailer_agent.py`'s module docstring), so "applying"
+    one means actually advancing the twin one tick with the modified
+    strategy in effect for that retailer, which is exactly what this
+    parameter, added for that purpose, lets a caller do."""
+    marketplace_agent, retailer_agents, _ = build_agents(
+        twin, db_path, retailer_strategy_overrides=retailer_strategy_overrides, seed=seed
+    )
+    _run_ticks(twin, marketplace_agent, retailer_agents, ticks, random.Random(seed))
+
+
+def build_scenario_twin(
+    scenario_type: str,
+    params: dict[str, Any],
+    *,
+    tenant_id: str | None = None,
+    twin: DigitalTwinState | None = None,
+    db_path: Path = DUCKDB_PATH,
+) -> DigitalTwinState:
+    """Clones (or loads) a twin and applies ONLY a scenario's setup mutation
+    - no ticks run. Built for `orchestration/agent_flow.py`'s "scenario"
+    run mode (PHASE9-AUTONOMY.md Section 1's "per scenario (Phase 8)"): it
+    hands autonomous agents a twin reflecting "what the world looks like
+    right after this scenario happened" - the same setup step `run_scenario()`
+    applies to its own scenario branch before running it forward - so agents
+    can decide/act on top of a hypothetical rather than only ever the live
+    warehouse snapshot. Exposed here as a real public entry point rather
+    than `orchestration/agent_flow.py` reaching into this module's private
+    `_apply_scenario_setup()`/`build_agents()` directly across the package
+    boundary - same posture `run_baseline_projection()` already established
+    (contrast with `simulation/counterfactuals.py`, a sibling module
+    *inside* this package, which does import those privately - see that
+    module's docstring)."""
+    if scenario_type not in SCENARIO_TYPES:
+        raise ScenarioError(f"unknown scenario_type {scenario_type!r} - must be one of {SCENARIO_TYPES}")
+    base_twin = twin if twin is not None else load_digital_twin(tenant_id, db_path)
+    scenario_twin = base_twin.clone()
+    marketplace_agent, retailer_agents, product_agents = build_agents(scenario_twin, db_path, seed=42)
+    _apply_scenario_setup(scenario_type, params, scenario_twin, marketplace_agent, retailer_agents, product_agents)
+    return scenario_twin
+
+
 def _retailer_health_score(order_count: int, net_revenue: float, estimated_profit: float | None) -> float:
     """Same formula compute/polars/transform_orders.py's order_health_frame()
     already uses on real data, applied here to a simulated twin's state

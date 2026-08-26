@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Activity, AlertTriangle, Boxes, Brain, Building2, FlaskConical, GitBranch, Home, Package, ReceiptText, ServerCog, ShieldAlert } from "lucide-react";
+import { Activity, AlertTriangle, Bot, Boxes, Brain, Building2, FlaskConical, GitBranch, Home, Package, ReceiptText, ServerCog, ShieldAlert } from "lucide-react";
 import "./globals.css";
 import { LiveModeProvider } from "@/components/LiveModeProvider";
 import { LiveModeToggle } from "@/components/LiveModeToggle";
@@ -31,6 +31,14 @@ const navItems = [
   // scenarios, and counterfactual replay. Open like /ml and /monitoring
   // (no tenant gating - see api/simulation_api.py's module docstring).
   { href: "/simulation", label: "Simulation", icon: FlaskConical },
+  // Phase 9 (PHASE9-AUTONOMY.md Section 9) - the autonomous agent decision
+  // layer built on top of every earlier phase's warehouse/ML/anomaly/
+  // simulation infrastructure. Open like /simulation/ml/monitoring above (no
+  // tenant gating - see api/autonomy_api.py's module docstring). marigold is
+  // this section's own accent color (tailwind.config.ts) - distinct from
+  // plum (Simulation) and mint (Monitoring) - carried through
+  // components/autonomy/AutonomyTabs.tsx and AutonomyLiveBar.tsx.
+  { href: "/autonomy", label: "Autonomy", icon: Bot },
   // Phase 7 (PHASE7-DEPLOYMENT.md Section 2/4) - the one nav item backed by
   // genuinely tenant-scoped data (marts.compute_tenant_health /
   // marts.metrics_tenant_daily), gated behind login inside the page itself

@@ -1,5 +1,5 @@
 
-# ⭐ **PHASE 9 MASTER PROMPT — Autonomous Marketplace Agents**
+# ⭐ **Autonomous Marketplace Agents**
 
 > Implement Phase 9 of Mini Faire by adding **autonomous agents** that make real‑time decisions about pricing, inventory, promotions, demand shaping, anomaly response, and retailer strategy.  
 >

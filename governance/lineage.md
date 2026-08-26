@@ -67,6 +67,16 @@ Additional edge types emitted by the Phase 6 ML layer (see "Phase 6 ML Lineage" 
 - `ml_recommendation_generated`: `marts.fact_orders` to `ml.recommendations`, one per `persist_recommendations()` call.
 - `ml_anomaly_classified`: `anomalies.anomaly_events` to `ml.anomaly_classifications`, one per `persist_classifications()` call.
 
+Additional edge types emitted by the Phase 8 simulation layer (see "Phase 8 Simulation & Digital Twin Lineage" below):
+
+- `scenario_simulated`: the digital twin snapshot to `simulation.scenario_results`, one per `run_scenario()` call.
+- `counterfactual_simulated`: `marts.fact_orders` to `simulation.counterfactual_results`, one per `run_counterfactual()` call.
+
+Additional edge types emitted by the Phase 9 autonomy layer (see "Phase 9 Autonomy Lineage" below):
+
+- `autonomy_agent_decided`: the digital twin snapshot plus the ML/anomaly tables it already carries, to one agent type's own `autonomy.<agent_type>_actions` table, one per agent type per round.
+- `autonomy_conflict_resolved`: the five `autonomy.*_actions` tables to `autonomy.conflicts`, one per `run_agent_flow()` run that resolved at least one entity-level collision.
+
 Static transformation lineage is encoded by repository SQL file names and the DAG/flow definitions:
 
 - `raw.raw_retailers` -> `staging.stg_retailers` -> `marts.dim_retailer`
@@ -320,6 +330,38 @@ Phase 8 (`PHASE8-SIMULATION.md`) adds a simulation layer that reads the warehous
 
 `simulation.scenario_results` / `simulation.counterfactual_results` -> `GET /simulation/results`, `/simulation/results/scenario/{id}`, `/simulation/results/counterfactual/{id}` -> the frontend's `/simulation/results` page. `POST /simulation/scenarios` / `/simulation/counterfactuals` -> `run_scenario()`/`run_counterfactual()` directly (the interactive, single-run counterpart to `/simulation/run`'s batch). `/simulation/ws` / `/simulation/stream` diff-poll both result tables by `completed_at` every 2s (same pattern as `/realtime/ws`/`/monitoring/ws`/`/ml/ws`) and push new rows to the frontend's five `/simulation/*` pages - progress push is row-arrival granularity (a completed run shows up), not a true intra-run percentage, since each run resolves in one synchronous call with no natural mid-run checkpoint to report.
 
+## Phase 9 Autonomy Lineage
+
+Phase 9 (`PHASE9-AUTONOMY.md`) adds an autonomous-agent decision layer that reads the digital twin plus the ML/anomaly/monitoring tables every earlier phase already builds - the same "read existing state as input, don't duplicate it" posture Phase 6's ML lineage and Phase 8's simulation lineage both already take. Every table lives in the `autonomy` schema (`autonomy.pricing_actions`, `autonomy.inventory_actions`, `autonomy.demand_actions`, `autonomy.anomaly_actions`, `autonomy.retailer_strategy_actions`, `autonomy.conflicts`), each created defensively by its owning module on first use, same convention as `monitoring`/`anomalies`/`ml`/`tenant`/`simulation`. Unlike every schema before it, this is also the first layer whose lineage terminates by writing BACK into `simulation`'s own state (`DigitalTwinState`) rather than only producing new downstream tables - see "Decision application" below.
+
+**Agent decision** (`autonomy/agent_framework.py`'s `BaseAutonomousAgent.decide()`, one call per agent type per round - never mutates the twin itself, only proposes):
+
+`simulation/digital_twin.py`'s `DigitalTwinState` (already carrying `ml.forecasts`/`ml.clusters`/`ml.recommendations`/`ml.anomaly_classifications` and `anomalies.anomaly_events` - see `load_digital_twin()`) + `AgentContext.pipeline_healthy` (`monitoring.alert_events`, read directly since it's the one signal `DigitalTwinState` doesn't already carry)
+-> each of the five agent modules' `_decide_one()`/`_decide_operational()` decision ladders
+-> a list of `AgentAction` (`status='proposed'`, in-memory only at this point)
+
+**Conflict resolution & application** (`orchestration/agent_flow.py`'s `_resolve_and_apply()`, one call per round):
+
+proposed `AgentAction`s, sorted by the fixed `AGENT_TYPE_PRIORITY` order (`anomaly_response > inventory > pricing > retailer_strategy > demand`) and confidence
+-> each agent's `enforce_constraints()` (safety-limit clamping, and the cooldown-entity check that rejects every later proposal for an entity a higher-priority agent already claimed - the conflict itself)
+-> survivors: each agent's `act()` -> real `DigitalTwinState` mutation (`apply_price_change()`/`apply_inventory_delta()` for most action types; `retailer_strategy_agent.py`'s four operational action types instead call `scenario_engine.advance_twin(..., retailer_strategy_overrides={...})`, since `RetailerStrategy` has no twin field of its own to mutate directly; `anomaly_response_agent.py`'s two trigger action types call `scenario_engine.run_scenario()`/`counterfactuals.run_counterfactual()` directly, each producing its own ordinary `scenario_simulated`/`counterfactual_simulated` edge on top of this section's edges)
+-> rejected proposals recorded as `status='rejected'`, each contested entity producing one conflict record (`conflict_id`/`run_id`/entity/winning action/rejected action)
+
+**Persistence** (`orchestration/agent_flow.py`'s `_persist_round()`/`_persist_conflicts()`, once per round):
+
+resolved `AgentAction`s (applied, advisory, and rejected alike - a rejected action is as much a real audit-trail row as an applied one) -> `persist_actions()` -> `autonomy.<agent_type>_actions` (`autonomy_agent_decided` edge, `simulation.digital_twin,ml.forecasts,ml.clusters,ml.recommendations,anomalies.anomaly_events` -> `autonomy.<agent_type>_actions`)
+conflict records -> `_persist_conflicts()` -> `autonomy.conflicts` (`autonomy_conflict_resolved` edge, the five `autonomy.*_actions` tables -> `autonomy.conflicts`)
+-> one `elt_model_runs` row per agent_type per round (`load_strategy='autonomy_agent'`, `model_name`=agent_type), same audit convention as every other flow in this repo
+-> on any individual agent's `decide()` raising, `autonomy_agent_failure` dispatched through `alerts/dispatcher.py` (the same one every earlier phase uses) without blocking the other four agents' rounds
+
+**Reward attribution** (`orchestration/agent_flow.py`'s `run_agent_flow()`, once per whole run - not per round):
+
+`scenario_engine.run_baseline_projection()` before the run's first round and after its last round (`gmv_before`/`gmv_after`) -> `reward = gmv_after - gmv_before`, attributed identically via `agent.score_reward()` to every non-rejected action from the entire run - except `anomaly_response_agent.py`'s `trigger_simulation_scenario`/`trigger_counterfactual_analysis` action types, whose `score_reward()` override substitutes the triggered scenario/counterfactual's own exact `predicted_gmv_delta`/`counterfactual_gmv_delta` (stashed onto `action.params["result_gmv_delta"]` during `_apply_one()`) instead of this run-level approximation
+
+**Serving** (`api/autonomy_api.py`, open by default like `/ml`/`/monitoring`/`/simulation`):
+
+`autonomy.<agent_type>_actions` (all five, Python-merged rather than SQL `UNION ALL` - see that module's `_read_all_actions()` docstring for why a union would fail closed for every table the instant even one doesn't exist yet) -> `GET /autonomy/actions`, `/autonomy/pricing`, `/inventory`, `/demand`, `/anomalies`, `/retailer-strategy` -> the frontend's `/autonomy/decisions` page. `autonomy.conflicts` -> `GET /autonomy/conflicts` -> `/autonomy/conflicts`. `POST /autonomy/run` -> `run_agent_flow()` directly (the interactive, on-demand counterpart to `python orchestration/agent_flow.py`). `/autonomy/ws` / `/autonomy/stream` diff-poll all five action tables plus `autonomy.conflicts` by `created_at` every 2s (same pattern as `/realtime/ws`/`/monitoring/ws`/`/ml/ws`/`/simulation/ws`), attaching a freshly-recomputed `performance` snapshot to every non-empty update rather than treating "resolutions" as a seventh topic (every `autonomy.conflicts` row already names both the winning and rejected action, so it already is a resolution record).
+
 ## Quarantine Handling
 
 Invalid records are never dropped. They are written to the matching quarantine path with:
@@ -483,3 +525,9 @@ Incremental correctness checks:
 - Simulation API (Phase 8): `api/simulation_api.py`
 - Runtime simulation tables (Phase 8): `simulation.scenario_results`, `simulation.counterfactual_results`
 - Simulation frontend (Phase 8): `frontend/app/simulation/`, `frontend/components/simulation/`, `frontend/lib/simulationRealtime.ts`
+- Agent framework (Phase 9): `autonomy/agent_framework.py`
+- Autonomous agents (Phase 9): `autonomy/pricing_agent.py`, `autonomy/inventory_agent.py`, `autonomy/demand_agent.py`, `autonomy/anomaly_response_agent.py`, `autonomy/retailer_strategy_agent.py`
+- Autonomy orchestration (Phase 9): `orchestration/agent_flow.py`
+- Autonomy API (Phase 9): `api/autonomy_api.py`
+- Runtime autonomy tables (Phase 9): `autonomy.pricing_actions`, `autonomy.inventory_actions`, `autonomy.demand_actions`, `autonomy.anomaly_actions`, `autonomy.retailer_strategy_actions`, `autonomy.conflicts`
+- Autonomy frontend (Phase 9): `frontend/app/autonomy/`, `frontend/components/autonomy/`, `frontend/lib/autonomyRealtime.ts`

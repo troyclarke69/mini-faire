@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
+from api.autonomy_api import router as autonomy_router
 from api.db import query
 from api.ml_api import router as ml_router
 from api.monitoring_api import router as monitoring_router
@@ -62,6 +63,7 @@ app.include_router(ml_router)
 app.include_router(auth_router)
 app.include_router(tenant_router)
 app.include_router(simulation_router)
+app.include_router(autonomy_router)
 
 
 # ingestion/duckdb_utils.py's connect_with_retry() already absorbs a *brief*

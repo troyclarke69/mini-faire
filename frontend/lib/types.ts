@@ -572,3 +572,146 @@ export type AgentStrategy = {
   default_product_strategy: ProductStrategyDefaults;
 };
 
+// Phase 9 (PHASE9-AUTONOMY.md) autonomous-agent types - api/autonomy_api.py's
+// response shapes, mirroring autonomy/agent_framework.py's AgentAction/
+// AgentConstraints dataclasses and orchestration/agent_flow.py's conflict
+// record / run summary shapes verbatim. As with the Phase 5/6/8 types above,
+// `params` is a JSON-encoded string (see AgentAction's own docstring: same
+// "JSON blob in a varchar column" convention as simulation.scenario_results.
+// params/ml.model_registry.params), not a pre-parsed object - parse with
+// JSON.parse() where the extra detail is actually displayed (components/
+// autonomy/AgentDecisionTable.tsx).
+
+export type AgentAction = {
+  action_id: string;
+  agent_type: string; // "pricing" | "inventory" | "demand" | "anomaly_response" | "retailer_strategy"
+  action_type: string;
+  entity_type: string;
+  entity_id: string;
+  tenant_id: string | null;
+  params: string;
+  rationale: string;
+  confidence: number;
+  status: string; // "proposed" | "applied" | "rejected" | "reverted"
+  reward: number | null;
+  run_id: string | null;
+  created_at: string;
+  applied_at: string | null;
+};
+
+// GET /autonomy/actions and its five per-agent-type siblings
+// (/autonomy/pricing, /inventory, /demand, /anomalies, /retailer-strategy)
+// all return this same {"actions": [...]} envelope.
+export type AgentActionsFeed = {
+  actions: AgentAction[];
+};
+
+// One row of autonomy.conflicts - orchestration/agent_flow.py's
+// _resolve_and_apply() builds this exact shape the moment a later proposal
+// loses cooldown_entities arbitration to an earlier one; POST /autonomy/run's
+// own `conflicts` field (before the row is even persisted) carries the same
+// shape.
+export type AgentConflict = {
+  conflict_id: string;
+  run_id: string;
+  entity_type: string;
+  entity_id: string;
+  winning_agent_type: string | null;
+  winning_action_type: string | null;
+  winning_action_id: string | null;
+  rejected_agent_type: string;
+  rejected_action_type: string;
+  rejected_action_id: string;
+  created_at: string;
+};
+
+// GET /autonomy/conflicts
+export type AgentConflictsFeed = {
+  conflicts: AgentConflict[];
+};
+
+// Per-agent-type aggregate api/autonomy_api.py's _compute_performance()
+// computes straight off each autonomy.*_actions table's status/reward
+// columns - GET /autonomy/performance and the WS/SSE "performance" snapshot
+// attached to every non-empty update.
+export type AgentPerformance = {
+  agent_type: string;
+  action_count: number;
+  applied_count: number;
+  rejected_count: number;
+  advisory_count: number;
+  average_reward: number | null;
+};
+
+// GET /autonomy/performance
+export type AgentPerformanceFeed = {
+  performance: AgentPerformance[];
+};
+
+// autonomy/agent_framework.py's AgentConstraints dataclass, as
+// `dataclasses.asdict()` serializes it for GET /autonomy/state's
+// default_constraints field - the same safety limits every agent's
+// enforce_constraints() call respects (max price move, reorder multiplier
+// cap, promotion discount cap, per-run action cap).
+export type AgentConstraints = {
+  max_price_change_pct: number;
+  min_unit_price: number;
+  max_reorder_multiplier: number;
+  max_actions_per_agent_per_run: number;
+  max_promotion_discount: number;
+};
+
+// A narrowed elt_model_runs row - api/autonomy_api.py's
+// _last_run_by_agent_type() reads only these five columns (load_strategy=
+// 'autonomy_agent' rows - see orchestration/agent_flow.py's
+// _append_agent_run()), keyed by agent_type in GET /autonomy/state's
+// last_run_by_agent_type field below.
+export type AgentRunRecord = {
+  model_name: string;
+  target_table: string;
+  started_at: string;
+  completed_at: string;
+  status: string;
+};
+
+// GET /autonomy/state. Not live in-memory agent state (agent instances are
+// ephemeral, built fresh once per orchestration/agent_flow.py run - see
+// agent_framework.BaseAutonomousAgent's docstring) - this is the twin
+// summary, the fixed conflict-resolution priority order, the default safety
+// constraints, the current pipeline-health reading, and the last recorded
+// run per agent_type. components/autonomy/AgentStateVisualizer.tsx's data
+// source.
+export type AutonomyState = {
+  twin_summary: SimulationTwinSummary;
+  pipeline_healthy: boolean;
+  agent_type_priority: string[];
+  default_constraints: AgentConstraints;
+  last_run_by_agent_type: Record<string, AgentRunRecord>;
+};
+
+// POST /autonomy/run's response - orchestration/agent_flow.py's
+// run_agent_flow() summary dict verbatim. `conflicts` here is this run's own
+// freshly-resolved list (same AgentConflict shape as the persisted
+// autonomy.conflicts rows GET /autonomy/conflicts returns, just not yet
+// round-tripped through the table). Can come back as `{}` (every field
+// `undefined`) if the warehouse isn't built yet - components/autonomy/
+// AgentRunTrigger.tsx renders defensively for that case, same "empty object
+// means nothing to show yet" posture other Phase 8 detail lookups already
+// take.
+export type AgentRunSummary = {
+  run_id: string;
+  mode: string;
+  rounds: number;
+  pipeline_healthy: boolean;
+  proposed_count: number;
+  applied_count: number;
+  advisory_count: number;
+  rejected_count: number;
+  conflicts: AgentConflict[];
+  gmv_before: number;
+  gmv_after: number;
+  reward: number;
+  action_counts_by_agent: Record<string, number>;
+  elapsed_seconds: number;
+};
+
