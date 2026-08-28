@@ -15,6 +15,15 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY alerts/ ./alerts/
 COPY anomalies/ ./anomalies/
+# autonomy/ and simulation/ are needed only for two of this image's possible
+# `command:` overrides - orchestration/agent_flow.py and
+# orchestration/simulation_flow.py both import directly from them (e.g.
+# `from autonomy.pricing_agent import PricingAgent`, `from simulation import
+# counterfactuals, scenario_engine`). Missing here until this deployment
+# pass for the same reason Dockerfile.backend was missing them - this image
+# predates Phase 8/9 and was never build-tested against a real container
+# runtime (see this file's own header).
+COPY autonomy/ ./autonomy/
 COPY compute/ ./compute/
 COPY config/ ./config/
 COPY contracts/ ./contracts/
@@ -22,6 +31,7 @@ COPY ingestion/ ./ingestion/
 COPY monitoring/ ./monitoring/
 COPY multi_tenant/ ./multi_tenant/
 COPY orchestration/ ./orchestration/
+COPY simulation/ ./simulation/
 COPY storage/ ./storage/
 COPY synthetic/ ./synthetic/
 COPY warehouse/ ./warehouse/

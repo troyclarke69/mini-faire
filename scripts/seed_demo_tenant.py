@@ -52,7 +52,7 @@ from multi_tenant.tenant_manager import ISOLATION_POOLED, create_tenant, get_ten
 # frontend/app/login/page.tsx pre-fills and labels as the demo login.
 DEMO_TENANT_ID = "demo_tenant"
 DEMO_TENANT_NAME = "Demo Workspace"
-DEMO_EMAIL = "demo@mini-faire.local"
+DEMO_EMAIL = "demo@rmap.local"
 DEMO_PASSWORD = "demo_tenant"  # 11 chars - clears config/auth.yaml's password_policy.min_length: 10
 DEMO_NAME = "Demo User"
 

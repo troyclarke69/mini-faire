@@ -5,14 +5,20 @@
 #
 # Deploy with `fly deploy --config infra/cloud/fly.toml --dockerfile
 # infra/cloud/Dockerfile.backend` from the repo root. Secrets (JWT_SECRET_KEY,
-# MONGO_PASSWORD, POSTGRES_PASSWORD, SLACK_WEBHOOK_URL) are set via
-# `fly secrets set NAME=value`, never committed here - same posture every
-# config/*.yaml in this repo already takes.
+# MONGO_PASSWORD, POSTGRES_PASSWORD, SLACK_WEBHOOK_URL, CORS_ALLOWED_ORIGINS)
+# are set via `fly secrets set NAME=value`, never committed here - same
+# posture every config/*.yaml in this repo already takes. See DEPLOYMENT.md
+# for the full step-by-step (volume creation, secrets, seeding demo data).
+#
+# App name is "rmap-backend" (the product's brand name - see DEPLOYMENT.md's
+# naming note) even though the repository/package underneath is still named
+# mini-faire; Fly app names are globally unique across all Fly customers, so
+# rename this if "rmap-backend" is already taken by someone else.
 #
 # Not deployed/validated against a real Fly.io account from the sandbox
 # that authored this file (no Fly API token / account there).
 
-app = "mini-faire-backend"
+app = "rmap-backend"
 primary_region = "iad"
 
 [build]
@@ -27,7 +33,7 @@ primary_region = "iad"
   # this only works with exactly one backend machine unless
   # config/database.yaml's postgres/mongo backends take over
   # metadata/events (see database/cloud_db.py's module docstring).
-  source = "mini_faire_data"
+  source = "rmap_data"
   destination = "/app/data"
 
 [http_service]

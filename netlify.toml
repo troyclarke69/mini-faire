@@ -1,0 +1,24 @@
+# Netlify build configuration for RMAP's Next.js frontend (see DEPLOYMENT.md
+# for the full step-by-step). The repo root is not the Next.js project -
+# frontend/ is - so `base` points Netlify's build there; everything else is
+# picked up automatically by Netlify's own Next.js Runtime (@netlify/plugin-
+# nextjs), which auto-installs on a git-connected deploy and does not need a
+# [[plugins]] block or an `output: "standalone"` next.config.mjs (that output
+# mode is for infra/cloud/Dockerfile.frontend's separate, Fly/Docker-only
+# build path - frontend/next.config.mjs only turns it on when
+# NEXT_OUTPUT_STANDALONE=true, which this Netlify build never sets).
+#
+# NEXT_PUBLIC_API_URL (the deployed backend's URL, e.g.
+# https://rmap-backend.fly.dev) is deliberately NOT set here - Next.js bakes
+# NEXT_PUBLIC_* variables into the client bundle at build time, so it must be
+# a real per-environment value, not a value committed to the repo. Set it in
+# the Netlify UI instead: Site configuration -> Environment variables.
+#
+# Not deployed/validated against a real Netlify account from the sandbox
+# that authored this file (no Netlify account/CLI token there) - written to
+# match frontend/package.json's actual scripts and Netlify's documented
+# zero-config Next.js App Router support.
+
+[build]
+  base = "frontend"
+  command = "npm run build"

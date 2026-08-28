@@ -132,11 +132,18 @@ async def ml_ws(websocket: WebSocket) -> None:
     await websocket.accept()
     cursors = _new_cursors()
 
-    initial = await _poll_delta(cursors)
-    await websocket.send_json(_envelope(initial, kind="snapshot"))
-
-    last_sent_at = asyncio.get_event_loop().time()
+    # Everything below - including the initial snapshot send - is inside
+    # this try/except. The initial send used to sit before the try, which
+    # meant a client that disconnected between accept() and that first
+    # send (e.g. React StrictMode's dev-mode double-mount, which opens and
+    # immediately tears down a socket) crashed the ASGI app instead of
+    # exiting quietly - the same "the send discovers the disconnect, not
+    # WebSocketDisconnect" gap `except Exception` below also covers.
     try:
+        initial = await _poll_delta(cursors)
+        await websocket.send_json(_envelope(initial, kind="snapshot"))
+
+        last_sent_at = asyncio.get_event_loop().time()
         while True:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
             changed = await _poll_delta(cursors)
@@ -148,6 +155,16 @@ async def ml_ws(websocket: WebSocket) -> None:
                 await websocket.send_json(_envelope({}, kind="heartbeat"))
                 last_sent_at = now
     except WebSocketDisconnect:
+        return
+    except Exception:
+        # A send against an already-closed socket can surface as something
+        # other than WebSocketDisconnect depending on exactly when/how the
+        # client went away (e.g. uvicorn's own ClientDisconnected, raised
+        # from send() rather than receive() - not a class Starlette
+        # re-exports, so not worth importing just to name it here). Nothing
+        # in this loop has a side effect worth distinguishing a real bug
+        # from a vanished client for, so any exception at this point just
+        # means "stop pushing," same as a clean WebSocketDisconnect.
         return
 
 

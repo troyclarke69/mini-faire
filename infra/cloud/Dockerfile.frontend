@@ -27,6 +27,10 @@ COPY frontend/ .
 # render.yaml set it per their own build-arg mechanism.
 ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+# frontend/next.config.mjs only emits the standalone build (which this
+# Dockerfile's final stage requires) when this is set - a Netlify build never
+# sets it, so the same next.config.mjs serves both deploy paths correctly.
+ENV NEXT_OUTPUT_STANDALONE=true
 RUN npm run build
 
 FROM node:20-slim AS runtime

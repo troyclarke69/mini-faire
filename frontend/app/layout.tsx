@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Activity, AlertTriangle, Bot, Boxes, Brain, Building2, FlaskConical, GitBranch, Home, Package, ReceiptText, ServerCog, ShieldAlert } from "lucide-react";
+import { Activity, AlertTriangle, Bot, Boxes, Brain, BookOpen, Building2, FlaskConical, GitBranch, Home, Package, ReceiptText, ServerCog, ShieldAlert } from "lucide-react";
 import "./globals.css";
 import { LiveModeProvider } from "@/components/LiveModeProvider";
 import { LiveModeToggle } from "@/components/LiveModeToggle";
@@ -12,7 +12,7 @@ import { getCurrentTenantId } from "@/lib/tenant";
 import type { TenantSummary } from "@/lib/types";
 
 export const metadata: Metadata = {
-  title: "Mini Faire",
+  title: "RMAP — Retail Marketplace Analytics Platform",
   description: "Retail marketplace analytics platform"
 };
 
@@ -46,7 +46,11 @@ const navItems = [
   // existing "every route is reachable, some render an empty/prompt state"
   // convention (e.g. /quarantine before any run has ever quarantined a
   // record).
-  { href: "/tenants", label: "Tenants", icon: Building2 }
+  { href: "/tenants", label: "Tenants", icon: Building2 },
+  // The compiled README/governance/lineage/architecture reference (see
+  // MASTER_GUIDE.md at the repo root and frontend/app/docs/page.tsx) -
+  // open like /ml/monitoring/simulation/autonomy above, no tenant gating.
+  { href: "/docs", label: "Docs", icon: BookOpen }
 ];
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -65,8 +69,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <div className="flex min-h-screen">
             <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-white px-4 py-5 dark:border-slate-800 dark:bg-slate-950 lg:block">
               <div className="mb-8">
-                <p className="text-lg font-semibold">Mini Faire</p>
-                <p className="text-sm text-slate-500">Marketplace analytics</p>
+                <p className="text-lg font-semibold">RMAP</p>
+                <p className="text-sm text-slate-500">Retail Marketplace Analytics</p>
               </div>
               <nav className="space-y-1">
                 {navItems.map((item) => (

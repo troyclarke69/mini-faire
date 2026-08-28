@@ -25,6 +25,18 @@ COPY pyproject.toml README.md ./
 COPY alerts/ ./alerts/
 COPY anomalies/ ./anomalies/
 COPY api/ ./api/
+# autonomy/ and simulation/ were missing here until this deployment pass -
+# api/metrics_api.py mounts api/autonomy_api.py and api/simulation_api.py
+# (see api/metrics_api.py's include_router() calls), both of which import
+# directly from these two packages (`from simulation.digital_twin import
+# load_digital_twin`, `from autonomy.agent_framework import
+# AgentConstraints`, etc.) - without them, `uvicorn api.metrics_api:app`
+# crashes with ModuleNotFoundError at import time, before it ever binds
+# port 8000. This Dockerfile predates Phase 8 (simulation/) and Phase 9
+# (autonomy/), and nothing in docker-compose.cloud.yaml or a real cloud
+# account ever actually ran this image end-to-end to catch it - see this
+# file's own header for that build-untested caveat.
+COPY autonomy/ ./autonomy/
 COPY auth/ ./auth/
 COPY compute/ ./compute/
 COPY config/ ./config/
@@ -35,6 +47,7 @@ COPY ml/ ./ml/
 COPY monitoring/ ./monitoring/
 COPY multi_tenant/ ./multi_tenant/
 COPY orchestration/ ./orchestration/
+COPY simulation/ ./simulation/
 COPY storage/ ./storage/
 COPY synthetic/ ./synthetic/
 COPY warehouse/ ./warehouse/

@@ -13,7 +13,7 @@ import { PageHeader } from "@/components/PageHeader";
 // without ever running seed_demo_tenant.py, logging in with these still
 // just fails normally (401 from /auth/login) - this page doesn't assume
 // the demo account exists, it only offers it.
-const DEMO_EMAIL = "demo@mini-faire.local";
+const DEMO_EMAIL = "demo@rmap.local";
 const DEMO_PASSWORD = "demo_tenant";
 
 export default function LoginPage() {
@@ -55,7 +55,7 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto max-w-sm space-y-6">
-      <PageHeader title="Log in" subtitle="Mini Faire's tenant/auth layer (PHASE7-DEPLOYMENT.md Section 3)." />
+      <PageHeader title="Log in" subtitle="RMAP's tenant/auth layer (PHASE7-DEPLOYMENT.md Section 3)." />
       <div className="panel space-y-2 border-mint/40 bg-mint/5 p-4 text-sm">
         <p className="font-medium text-slate-700 dark:text-slate-300">
           Trying this out? The fields below are pre-filled with a shared demo workspace - just click

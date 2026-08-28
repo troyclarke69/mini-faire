@@ -150,4 +150,13 @@ include = [
   # on disk - same class of gap this comment already documents for
   # alerts/anomalies/monitoring/ml above, just caught later.
   "simulation*",
+  # Phase 9 (PHASE9-AUTONOMY.md): autonomy/ (agent_framework.py, the five
+  # *_agent.py modules) is this phase's new top-level package - same gap as
+  # simulation* above, caught during the Fly.io/Netlify deployment pass
+  # (infra/cloud/Dockerfile.backend's `pip install -e ".[ml]"` and
+  # Dockerfile.orchestration's `pip install -e ".[mongo]"` both need
+  # `autonomy` registered for `api/autonomy_api.py`'s and
+  # `orchestration/agent_flow.py`'s `from autonomy...` imports to resolve
+  # once those Dockerfiles' own missing `COPY autonomy/` was fixed).
+  "autonomy*",
 ]
