@@ -118,7 +118,9 @@ fly secrets set --app rmap-backend CORS_ALLOWED_ORIGINS="https://<your-site-name
 
 ## Part 4: Deploy the frontend to Netlify
 
-**1. Connect the repository.** In the Netlify dashboard: **Add new site → Import an existing project**, and point it at [github.com/troyclarke69/mini-faire](https://github.com/troyclarke69/mini-faire). Netlify reads `netlify.toml` at the repo root (`base = "frontend"`) and auto-detects Next.js — its own Next.js Runtime (`@netlify/plugin-nextjs`) installs itself automatically; nothing to configure by hand.
+**1. Connect the repository.** In the Netlify dashboard: **Add new site → Import an existing project**, and point it at [github.com/troyclarke69/mini-faire](https://github.com/troyclarke69/mini-faire). Netlify reads `netlify.toml` at the repo root (`base = "frontend"`), which now also explicitly declares the Next.js Runtime (`[[plugins]] package = "@netlify/plugin-nextjs"`) — nothing to configure by hand. That plugin is what turns `.next/`'s build output into servable routes; without it, `npm run build` (plain `next build`) still succeeds, but nothing gets published or routed, and the site 404s everywhere with no error in the build log — a real deploy of this repo hit exactly that (Site configuration showed "Runtime: Not set", "Publish directory: Not set"), which is why the plugin is now pinned explicitly here instead of left to auto-detection.
+
+**After connecting, verify the Runtime actually took.** Site configuration → Build & deploy → Build settings should show **Runtime: Next.js** once a deploy has run with the `[[plugins]]` block above. If it still shows "Not set" after a deploy, use **Trigger deploy → Clear cache and deploy site** (not a plain retry) — a site that was first connected before this block existed can have a stale build cache that skips re-evaluating plugins.
 
 **2. Set the API URL *before* the first build.** In **Site configuration → Environment variables**, add:
 ```

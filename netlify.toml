@@ -1,12 +1,35 @@
 # Netlify build configuration for RMAP's Next.js frontend (see DEPLOYMENT.md
 # for the full step-by-step). The repo root is not the Next.js project -
-# frontend/ is - so `base` points Netlify's build there; everything else is
-# picked up automatically by Netlify's own Next.js Runtime (@netlify/plugin-
-# nextjs), which auto-installs on a git-connected deploy and does not need a
-# [[plugins]] block or an `output: "standalone"` next.config.mjs (that output
-# mode is for infra/cloud/Dockerfile.frontend's separate, Fly/Docker-only
-# build path - frontend/next.config.mjs only turns it on when
-# NEXT_OUTPUT_STANDALONE=true, which this Netlify build never sets).
+# frontend/ is - so `base` points Netlify's build there.
+#
+# The Next.js Runtime (@netlify/plugin-nextjs) is declared explicitly below
+# rather than relied on as zero-config auto-detect. Netlify's docs describe
+# the Runtime as auto-installing for a git-connected Next.js site, but that
+# depends on framework auto-detection succeeding at the site's `base`
+# directory - in a real deploy of this repo, auto-detect did not kick in
+# (Site configuration showed "Runtime: Not set", "Publish directory: Not
+# set" - `next build` still ran and reported success, since that step is
+# just the plain Next.js CLI, but with no Runtime and nothing published,
+# every route 404s: there's no server/functions layer translating the
+# `.next/` build output into servable routes). An explicit [[plugins]]
+# entry is Netlify's own documented fallback for exactly this case and
+# doesn't depend on auto-detection at all - it also does NOT go in
+# package.json (Netlify's build image installs it itself; adding it to
+# package.json too is explicitly discouraged in Netlify's own docs, since
+# it can pin a version out of step with what the build image expects).
+#
+# This also means the earlier "does not need a [[plugins]] block" claim
+# this file previously made was wrong in practice, even though it matches
+# Netlify's general zero-config documentation - left here as a note in case
+# a future Netlify platform change makes the explicit block unnecessary
+# again; it's harmless to keep either way (an explicit plugin entry is a
+# no-op if the same Runtime would've auto-installed anyway).
+#
+# `output: "standalone"` is NOT set for this build path - that mode is only
+# for infra/cloud/Dockerfile.frontend's separate, Fly/Docker-only build;
+# frontend/next.config.mjs only turns it on when NEXT_OUTPUT_STANDALONE=true,
+# which this Netlify build never sets, so `next build` here produces the
+# normal output the Next.js Runtime plugin expects.
 #
 # NEXT_PUBLIC_API_URL (the deployed backend's URL, e.g.
 # https://rmap-backend.fly.dev) is deliberately NOT set here - Next.js bakes
@@ -15,10 +38,13 @@
 # the Netlify UI instead: Site configuration -> Environment variables.
 #
 # Not deployed/validated against a real Netlify account from the sandbox
-# that authored this file (no Netlify account/CLI token there) - written to
-# match frontend/package.json's actual scripts and Netlify's documented
-# zero-config Next.js App Router support.
+# that authored this file (no Netlify account/CLI token there) - the
+# [[plugins]] fix above was made from a real user's actual Netlify Site
+# configuration screen (a live 404 after a successful build), not guessed.
 
 [build]
   base = "frontend"
   command = "npm run build"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
