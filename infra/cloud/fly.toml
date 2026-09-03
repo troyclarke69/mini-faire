@@ -3,15 +3,19 @@
 # own (infra/cloud/fly.frontend.toml) since Fly apps are single-image, one
 # per manifest - not something one file can express for two images.
 #
-# Deploy with `fly deploy . --config infra/cloud/fly.toml --dockerfile
-# infra/cloud/Dockerfile.backend` from the repo root. The leading `.` is not
-# optional here: it tells flyctl the build context/working directory is the
-# repo root, which every COPY in Dockerfile.backend assumes. Omitting it -
-# e.g. running `fly deploy --config infra/cloud/fly.toml --dockerfile
-# infra/cloud/Dockerfile.backend` with no `.` - can resolve --dockerfile
-# relative to --config's own directory instead of the repo root, producing a
-# doubled path like `infra/cloud/infra/cloud/Dockerfile.backend` that
-# flyctl then reports as not found. Secrets (JWT_SECRET_KEY,
+# Deploy with `fly deploy --config infra/cloud/fly.toml` from the repo root
+# (no --dockerfile flag needed - see [build] below). flyctl resolves a
+# relative `dockerfile` path against the directory CONTAINING this file
+# (infra/cloud/), not the repo root, even though the Docker build CONTEXT
+# itself defaults to the repo root regardless of where --config points
+# (https://fly.io/docs/reference/configuration/) - two different base
+# directories for two different things. That's why the value below is just
+# "Dockerfile.backend", not "infra/cloud/Dockerfile.backend" - the latter
+# would resolve to infra/cloud/infra/cloud/Dockerfile.backend and flyctl
+# would report it not found (a doubled-path error DEPLOYMENT.md's
+# troubleshooting section covers, in case you're working from an older
+# checkout or pass --dockerfile by hand with the full path). Secrets
+# (JWT_SECRET_KEY,
 # MONGO_PASSWORD, POSTGRES_PASSWORD, SLACK_WEBHOOK_URL, CORS_ALLOWED_ORIGINS)
 # are set via `fly secrets set NAME=value`, never committed here - same
 # posture every config/*.yaml in this repo already takes. See DEPLOYMENT.md
@@ -29,7 +33,7 @@ app = "rmap-backend"
 primary_region = "iad"
 
 [build]
-  dockerfile = "infra/cloud/Dockerfile.backend"
+  dockerfile = "Dockerfile.backend"
 
 [env]
   MINI_FAIRE_DATA_DIR = "/app/data"

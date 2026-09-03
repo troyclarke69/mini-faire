@@ -1,9 +1,9 @@
 # Fly.io deployment manifest for the Next.js frontend (see fly.toml's header
 # for why this is a separate file - one Fly app per manifest, and for why
-# the leading `.` below is required, not optional). Deploy with
-# `fly deploy . --config infra/cloud/fly.frontend.toml --dockerfile
-# infra/cloud/Dockerfile.frontend --build-arg
-# NEXT_PUBLIC_API_URL=https://rmap-backend.fly.dev` from the repo root.
+# [build] below uses a bare filename rather than "infra/cloud/Dockerfile.
+# frontend"). Deploy with `fly deploy --config infra/cloud/fly.frontend.toml
+# --build-arg NEXT_PUBLIC_API_URL=https://rmap-backend.fly.dev` from the
+# repo root - no --dockerfile flag needed, [build] below already declares it.
 #
 # This file is an alternative to the frontend deploy path DEPLOYMENT.md
 # actually walks through (Netlify) - keep it around for anyone who'd rather
@@ -13,7 +13,7 @@ app = "rmap-frontend"
 primary_region = "iad"
 
 [build]
-  dockerfile = "infra/cloud/Dockerfile.frontend"
+  dockerfile = "Dockerfile.frontend"
 
 [http_service]
   internal_port = 3000

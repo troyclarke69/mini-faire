@@ -428,24 +428,33 @@ def _ensure_tables(con) -> None:
 
 
 def persist_metrics(metrics: list[SystemMetric], db_path: Path = DUCKDB_PATH) -> None:
-    if not metrics:
-        return
+    # `_ensure_tables()` runs unconditionally, even when `metrics` is empty -
+    # see anomalies/detector.py's `persist_anomalies()` for why (the same
+    # "table only ever gets created once something is actually persisted"
+    # gap, found and fixed there after it broke a real deploy).
+    # monitoring.system_metrics' own readers already guard against a missing
+    # table (api/monitoring_api.py's query_safe(), observability/metrics.py's
+    # _safe_query()), so this is defense in depth here, not an active bug -
+    # fixed for consistency with the same table-lifecycle contract.
     with connect_with_retry(db_path) as con:
         _ensure_tables(con)
-        con.executemany(
-            """
-            insert or replace into monitoring.system_metrics
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    m.metric_id, m.metric_category, m.metric_name, m.metric_value, m.unit,
-                    m.computed_at, m.window_start, m.window_end,
-                    json.dumps(m.metadata, default=str, sort_keys=True),
-                )
-                for m in metrics
-            ],
-        )
+        if metrics:
+            con.executemany(
+                """
+                insert or replace into monitoring.system_metrics
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        m.metric_id, m.metric_category, m.metric_name, m.metric_value, m.unit,
+                        m.computed_at, m.window_start, m.window_end,
+                        json.dumps(m.metadata, default=str, sort_keys=True),
+                    )
+                    for m in metrics
+                ],
+            )
+    if not metrics:
+        return
     upsert_lineage_edges(
         [
             LineageEdge(

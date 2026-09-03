@@ -77,9 +77,9 @@ Leave `CORS_ALLOWED_ORIGINS` for step 6 — you don't know your Netlify URL yet.
 
 **4. Deploy:**
 ```bash
-fly deploy . --config infra/cloud/fly.toml --dockerfile infra/cloud/Dockerfile.backend
+fly deploy --config infra/cloud/fly.toml
 ```
-The leading `.` matters — see the first entry in Troubleshooting below if you omit it and get a "Dockerfile not found" error with a doubled path.
+No `--dockerfile` flag — `infra/cloud/fly.toml`'s own `[build]` section already declares it. See the first entry in Troubleshooting below if you get a "Dockerfile not found" error with a doubled path (most often from adding `--dockerfile infra/cloud/Dockerfile.backend` back in by hand).
 
 **5. Verify and seed data.**
 ```bash
@@ -167,7 +167,7 @@ This is a reasonable v1-scale way to keep the demo "live" — but it isn't super
 
 ## Troubleshooting
 
-**`fly deploy` fails with `dockerfile '...\infra\cloud\infra\cloud\Dockerfile.backend' not found`** (a doubled path). This happens when `--config` points into a subdirectory (`infra/cloud/fly.toml`) without an explicit working-directory argument telling flyctl the build context is the repo root — `--dockerfile`'s relative path can then resolve against `--config`'s own directory instead, doubling `infra/cloud/`. Fix: add a leading `.` before `--config` (`fly deploy . --config infra/cloud/fly.toml --dockerfile infra/cloud/Dockerfile.backend`), matching [Fly's own documented monorepo pattern](https://fly.io/docs/launch/monorepo/). Already fixed in this repo's own example commands (`fly.toml`, `fly.frontend.toml`, `infra/cloud/deploy.sh`) — this note is here in case you're working from an older copy or typed the command by hand.
+**`fly deploy` fails with `dockerfile '...\infra\cloud\infra\cloud\Dockerfile.backend' not found`** (a doubled path). `fly.toml`'s `[build] dockerfile` field is resolved relative to the directory *containing `fly.toml`* (`infra/cloud/`), not the repo root — even though the Docker build *context* stays at the repo root by default regardless of where `--config` points ([Fly's own configuration reference](https://fly.io/docs/reference/configuration/) confirms these are two different base directories). If that field (or a `--dockerfile` flag on the command line) is written as `"infra/cloud/Dockerfile.backend"`, it resolves to `infra/cloud/infra/cloud/Dockerfile.backend`. Fix: use a bare filename — `dockerfile = "Dockerfile.backend"` in `fly.toml`, and drop `--dockerfile` from the deploy command entirely (`fly.toml`'s own `[build]` section already declares it: `fly deploy --config infra/cloud/fly.toml`). Already fixed in this repo's own `fly.toml`/`fly.frontend.toml`/`infra/cloud/deploy.sh` — this note is here in case you're working from an older copy or pass `--dockerfile` by hand with the full path.
 
 **Build context warning ("Build context is 1.0 GB across 39,442 files...").** This means `.dockerignore` isn't excluding `.venv/`, `frontend/node_modules/`, `data/`, etc. from what gets uploaded to the builder on every deploy — slower builds, not a failure. A root-level `.dockerignore` covering these is included in this repo; if you don't have it, add one (see `.dockerignore` at the repo root for the current list).
 

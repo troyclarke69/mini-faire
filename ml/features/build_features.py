@@ -55,6 +55,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from anomalies.detector import ensure_anomaly_events_table
 from ingestion.duckdb_utils import connect_with_retry
 from ingestion.metadata import LineageEdge, upsert_lineage_edges, utc_now
 from ingestion.paths import DUCKDB_PATH
@@ -365,6 +366,19 @@ _SOURCE_TABLES = {
 def build_all_features(db_path: Path = DUCKDB_PATH, *, lookback_days: int | None = None) -> list[FeatureRow]:
     if not db_path.exists():
         return []
+    # build_retailer_features()/build_product_features() below both LEFT
+    # JOIN anomalies.anomaly_events directly (for an anomaly_count feature)
+    # with no query_safe()-style guard - unlike every other reader of that
+    # table, which already tolerates it not existing yet. It's only ever
+    # created (anomalies/detector.py's persist_anomalies()) once the
+    # realtime monitoring pass has run at least once, which a fresh deploy
+    # that's gone straight from synthetic_flow.py to here may not have done.
+    # Ensuring it here (idempotent) means those two joins see an empty
+    # table instead of a missing one - a real gap this closes: it used to
+    # raise a DuckDB CatalogException, caught by the per-group try/except
+    # below, but that silently dropped every OTHER retailer/product feature
+    # (GMV, velocity, health score, ...) too, not just anomaly_count.
+    ensure_anomaly_events_table(db_path)
     config = load_ml_config()
     lookback = lookback_days if lookback_days is not None else config.lookback_days
 

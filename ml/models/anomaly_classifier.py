@@ -49,6 +49,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from anomalies.detector import ensure_anomaly_events_table
 from ingestion.duckdb_utils import connect_with_retry
 from ingestion.metadata import LineageEdge, upsert_lineage_edges, utc_now
 from ingestion.paths import DUCKDB_PATH
@@ -157,6 +158,15 @@ def train_classifier(db_path: Path = DUCKDB_PATH, *, config: MLConfig | None = N
     config = config or load_ml_config()
     if not db_path.exists():
         return None
+    # `anomalies.anomaly_events` is only ever created (as a side effect of
+    # `persist_anomalies()`) once the realtime monitoring pass has run at
+    # least once - on a fresh deploy that's gone straight from
+    # `synthetic_flow.py` to `ml_training_flow.py`, it may not exist yet.
+    # Ensuring it here (idempotent, `create table if not exists`) means
+    # `_load_anomalies()` below queries an empty table instead of a missing
+    # one - the "not enough labeled data" path a few lines down already
+    # handles the empty case, it just needs the table to actually exist.
+    ensure_anomaly_events_table(db_path)
     with connect_with_retry(db_path, read_only=True) as con:
         rows = _load_anomalies(con)
 
@@ -178,6 +188,9 @@ def evaluate_anomaly_classifier(db_path: Path = DUCKDB_PATH, *, config: MLConfig
     config = config or load_ml_config()
     if not db_path.exists():
         return {"accuracy": None, "f1_macro": None, "n_samples": 0, "n_classes": 0}
+    # See train_classifier()'s matching comment - ensures
+    # `anomalies.anomaly_events` exists before querying it directly.
+    ensure_anomaly_events_table(db_path)
     with connect_with_retry(db_path, read_only=True) as con:
         rows = _load_anomalies(con)
 

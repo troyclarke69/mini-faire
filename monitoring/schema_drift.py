@@ -252,24 +252,33 @@ def _ensure_tables(con) -> None:
 
 
 def persist_drift_events(events: list[DriftEvent], db_path: Path = DUCKDB_PATH, *, dispatch: bool = True) -> list[DriftEvent]:
+    # `_ensure_tables()` runs unconditionally, even when `events` is empty -
+    # see anomalies/detector.py's `persist_anomalies()` for why (the same
+    # "table only ever gets created once something is actually persisted"
+    # gap, found and fixed there after it broke a real deploy).
+    # monitoring.schema_drift_events' own readers already guard against a
+    # missing table (api/monitoring_api.py's query_safe()), so this is
+    # defense in depth here, not an active bug - fixed for consistency with
+    # the same table-lifecycle contract.
+    with connect_with_retry(db_path) as con:
+        _ensure_tables(con)
+        if events:
+            con.executemany(
+                """
+                insert or replace into monitoring.schema_drift_events
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        e.drift_id, e.entity, e.drift_type, e.field_name, e.expected,
+                        e.actual, e.severity, e.detected_at, e.source_path, e.run_id,
+                    )
+                    for e in events
+                ],
+            )
     if not events:
         return events
 
-    with connect_with_retry(db_path) as con:
-        _ensure_tables(con)
-        con.executemany(
-            """
-            insert or replace into monitoring.schema_drift_events
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    e.drift_id, e.entity, e.drift_type, e.field_name, e.expected,
-                    e.actual, e.severity, e.detected_at, e.source_path, e.run_id,
-                )
-                for e in events
-            ],
-        )
     upsert_lineage_edges(
         [
             LineageEdge(

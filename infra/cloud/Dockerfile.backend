@@ -46,6 +46,15 @@ COPY ingestion/ ./ingestion/
 COPY ml/ ./ml/
 COPY monitoring/ ./monitoring/
 COPY multi_tenant/ ./multi_tenant/
+# observability/ was also missing here until this deployment pass -
+# api/metrics_api.py imports from observability.logging, observability.
+# metrics, and observability.tracing unconditionally at module load (its
+# add_middleware() calls and the /observability/metrics route), so its
+# absence crashes `uvicorn api.metrics_api:app` with ModuleNotFoundError
+# before uvicorn ever binds port 8000 - same root cause and same
+# never-build-tested gap as the autonomy/simulation fix above, just a
+# different package this Dockerfile forgot to COPY.
+COPY observability/ ./observability/
 COPY orchestration/ ./orchestration/
 COPY simulation/ ./simulation/
 COPY storage/ ./storage/

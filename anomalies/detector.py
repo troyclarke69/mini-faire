@@ -556,26 +556,55 @@ def _ensure_tables(con) -> None:
     )
 
 
-def persist_anomalies(anomalies: list[Anomaly], db_path: Path = DUCKDB_PATH) -> None:
-    if not anomalies:
-        return
+def ensure_anomaly_events_table(db_path: Path = DUCKDB_PATH) -> None:
+    """Public wrapper around `_ensure_tables()` for callers outside this
+    module that need `anomalies.anomaly_events` to exist before querying it
+    directly. Every other reader of this table already degrades gracefully
+    on a missing table (`api/monitoring_api.py`'s `query_safe()`,
+    `simulation/digital_twin.py` and `simulation/counterfactuals.py`'s own
+    try/except) - `ml/features/build_features.py`'s retailer/product
+    builders and `ml/models/anomaly_classifier.py`'s `_load_anomalies()`
+    are the two exceptions, and call this first for the same reason
+    `persist_anomalies()` below now always ensures the table exists even
+    when there's nothing to insert yet (a real Fly.io deploy hit exactly
+    this: `ml_training_flow.py` run right after `synthetic_flow.py`
+    seeding, before any anomaly had ever been detected, so the table had
+    never been created)."""
     with connect_with_retry(db_path) as con:
         _ensure_tables(con)
-        con.executemany(
-            """
-            insert or replace into anomalies.anomaly_events
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    a.anomaly_id, a.anomaly_type, a.severity, a.detected_at,
-                    a.entity_type, a.entity_id, a.metric_name, a.metric_value,
-                    a.baseline_value, a.deviation, a.method,
-                    json.dumps(a.metadata, default=str, sort_keys=True),
-                )
-                for a in anomalies
-            ],
-        )
+
+
+def persist_anomalies(anomalies: list[Anomaly], db_path: Path = DUCKDB_PATH) -> None:
+    # `_ensure_tables()` runs unconditionally, even when `anomalies` is empty
+    # (e.g. every pass until the first real anomaly fires) - `anomalies.
+    # anomaly_events` needs to exist from the first warehouse touch, not
+    # just the first detection, since ml/features/build_features.py and
+    # ml/models/anomaly_classifier.py both query it directly (no query_safe()
+    # guard - unlike api/monitoring_api.py's reads of this same table) and
+    # would otherwise raise a DuckDB CatalogException on a fresh deploy that
+    # hasn't produced an anomaly yet (this bit a real Fly.io deploy: `python
+    # orchestration/ml_training_flow.py` right after `synthetic_flow.py`
+    # seeding, before anything had run detectors even once).
+    with connect_with_retry(db_path) as con:
+        _ensure_tables(con)
+        if anomalies:
+            con.executemany(
+                """
+                insert or replace into anomalies.anomaly_events
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        a.anomaly_id, a.anomaly_type, a.severity, a.detected_at,
+                        a.entity_type, a.entity_id, a.metric_name, a.metric_value,
+                        a.baseline_value, a.deviation, a.method,
+                        json.dumps(a.metadata, default=str, sort_keys=True),
+                    )
+                    for a in anomalies
+                ],
+            )
+    if not anomalies:
+        return
     upsert_lineage_edges(
         [
             LineageEdge(
