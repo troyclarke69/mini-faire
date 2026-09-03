@@ -147,8 +147,15 @@ step_deploy() {
       run docker compose -f infra/cloud/docker-compose.cloud.yaml up -d
       ;;
     fly)
-      run fly deploy --config infra/cloud/fly.toml --remote-only
-      run fly deploy --config infra/cloud/fly.frontend.toml --remote-only
+      # The explicit `.` working-directory argument matters: fly.toml lives
+      # in infra/cloud/, but its [build] dockerfile path (and every COPY in
+      # the Dockerfile it points to) is written relative to the repo root.
+      # Without `.` telling flyctl the build context/working directory is
+      # the repo root, --config's own directory can leak into path
+      # resolution instead - see DEPLOYMENT.md's troubleshooting section for
+      # the doubled-path error that produces.
+      run fly deploy . --config infra/cloud/fly.toml --remote-only
+      run fly deploy . --config infra/cloud/fly.frontend.toml --remote-only
       ;;
     render)
       # Render Blueprints deploy on git push once the blueprint is synced

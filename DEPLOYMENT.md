@@ -4,7 +4,7 @@ This is the step-by-step guide for taking RMAP from "runs locally against `.\.ve
 
 **Naming note.** The product is branded **RMAP** in this guide and in the UI; the repository and Python package underneath are still named `mini-faire`/`mini_faire` (see [MASTER_GUIDE.md](MASTER_GUIDE.md) for the same note in more detail). Fly.io resource names below use `rmap-*` to match the brand — that's a naming choice, not a different codebase.
 
-This guide focuses on the two platforms named. `infra/cloud/` also has manifests for Render, Azure Container Apps, and a from-scratch Terraform/AWS setup, plus a generic `docker-compose.cloud.yaml` for a single-host deploy — none of those are covered here, but the same considerations in Part 1 below apply to all of them.
+This guide focuses on the two platforms you named. `infra/cloud/` also has manifests for Render, Azure Container Apps, and a from-scratch Terraform/AWS setup, plus a generic `docker-compose.cloud.yaml` for a single-host deploy — none of those are covered here, but the same considerations in Part 1 below apply to all of them.
 
 ---
 
@@ -77,8 +77,9 @@ Leave `CORS_ALLOWED_ORIGINS` for step 6 — you don't know your Netlify URL yet.
 
 **4. Deploy:**
 ```bash
-fly deploy --config infra/cloud/fly.toml --dockerfile infra/cloud/Dockerfile.backend
+fly deploy . --config infra/cloud/fly.toml --dockerfile infra/cloud/Dockerfile.backend
 ```
+The leading `.` matters — see the first entry in Troubleshooting below if you omit it and get a "Dockerfile not found" error with a doubled path.
 
 **5. Verify and seed data.**
 ```bash
@@ -165,6 +166,10 @@ This is a reasonable v1-scale way to keep the demo "live" — but it isn't super
 ---
 
 ## Troubleshooting
+
+**`fly deploy` fails with `dockerfile '...\infra\cloud\infra\cloud\Dockerfile.backend' not found`** (a doubled path). This happens when `--config` points into a subdirectory (`infra/cloud/fly.toml`) without an explicit working-directory argument telling flyctl the build context is the repo root — `--dockerfile`'s relative path can then resolve against `--config`'s own directory instead, doubling `infra/cloud/`. Fix: add a leading `.` before `--config` (`fly deploy . --config infra/cloud/fly.toml --dockerfile infra/cloud/Dockerfile.backend`), matching [Fly's own documented monorepo pattern](https://fly.io/docs/launch/monorepo/). Already fixed in this repo's own example commands (`fly.toml`, `fly.frontend.toml`, `infra/cloud/deploy.sh`) — this note is here in case you're working from an older copy or typed the command by hand.
+
+**Build context warning ("Build context is 1.0 GB across 39,442 files...").** This means `.dockerignore` isn't excluding `.venv/`, `frontend/node_modules/`, `data/`, etc. from what gets uploaded to the builder on every deploy — slower builds, not a failure. A root-level `.dockerignore` covering these is included in this repo; if you don't have it, add one (see `.dockerignore` at the repo root for the current list).
 
 **Dashboards load but every table is empty.** You haven't seeded the volume yet — see Part 3, step 5. This is expected right after a fresh deploy (Part 1, point 3).
 

@@ -1,0 +1,27 @@
+# Trims what `fly deploy`/`docker build` upload as build context from this
+# repo root - every infra/cloud/Dockerfile.* COPY's only the specific
+# top-level packages it needs (see each Dockerfile's own COPY list), so
+# none of them need the entries below, which is most of this repo's actual
+# on-disk size (see DEPLOYMENT.md's troubleshooting section for the "Build
+# context is 1.0 GB" warning this fixes).
+#
+# frontend/node_modules and frontend/.next are excluded, not all of
+# frontend/ - infra/cloud/Dockerfile.frontend still needs the rest of
+# frontend/ (package.json, app/, components/, lib/, etc.) for its own
+# `npm ci && npm run build` inside the image; it never wants the host's
+# already-installed node_modules or a stale local .next build copied in.
+
+.venv/
+.git/
+data/
+mini_faire.egg-info/
+_to_delete/
+DoNOTpUSH.txt
+
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+
+frontend/node_modules/
+frontend/.next/
