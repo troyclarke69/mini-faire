@@ -118,9 +118,9 @@ fly secrets set --app rmap-backend CORS_ALLOWED_ORIGINS="https://<your-site-name
 
 ## Part 4: Deploy the frontend to Netlify
 
-**1. Connect the repository.** In the Netlify dashboard: **Add new site → Import an existing project**, and point it at [github.com/troyclarke69/mini-faire](https://github.com/troyclarke69/mini-faire). Netlify reads `netlify.toml` at the repo root (`base = "frontend"`), which now also explicitly declares the Next.js Runtime (`[[plugins]] package = "@netlify/plugin-nextjs"`) — nothing to configure by hand. That plugin is what turns `.next/`'s build output into servable routes; without it, `npm run build` (plain `next build`) still succeeds, but nothing gets published or routed, and the site 404s everywhere with no error in the build log — a real deploy of this repo hit exactly that (Site configuration showed "Runtime: Not set", "Publish directory: Not set"), which is why the plugin is now pinned explicitly here instead of left to auto-detection.
+**1. Connect the repository.** In the Netlify dashboard: **Add new site → Import an existing project**, and point it at [github.com/troyclarke69/mini-faire](https://github.com/troyclarke69/mini-faire). Netlify reads `netlify.toml` at the repo root (`base = "frontend"`, `publish = ".next"`), which also explicitly declares the Next.js Runtime (`[[plugins]] package = "@netlify/plugin-nextjs"`) — nothing to configure by hand. That plugin is what turns `.next/`'s build output (at `publish`) into servable routes; without both settings, `npm run build` (plain `next build`) still succeeds, but nothing gets published or routed, and the site 404s everywhere with no error in the build log — a real deploy of this repo hit exactly that (Site configuration showed "Runtime: Not set", "Publish directory: Not set" — zero-config auto-detection hadn't kicked in), which is why both are pinned explicitly here instead of left to auto-detection.
 
-**After connecting, verify the Runtime actually took.** Site configuration → Build & deploy → Build settings should show **Runtime: Next.js** once a deploy has run with the `[[plugins]]` block above. If it still shows "Not set" after a deploy, use **Trigger deploy → Clear cache and deploy site** (not a plain retry) — a site that was first connected before this block existed can have a stale build cache that skips re-evaluating plugins.
+**After connecting, verify it actually took.** Site configuration → Build & deploy → Build settings should show **Runtime: Next.js** and **Publish directory: frontend/.next** once a deploy has run with the settings above. If it still shows "Not set" after a deploy, use **Trigger deploy → Clear cache and deploy site** (not a plain retry) — a site that was first connected before these settings existed can have a stale build cache that skips re-evaluating them.
 
 **2. Set the API URL *before* the first build.** In **Site configuration → Environment variables**, add:
 ```
@@ -151,6 +151,29 @@ disown
 exit
 ```
 This is a reasonable v1-scale way to keep the demo "live" — but it isn't supervised: a Fly deploy or a Machine restart kills that background process, and you'd need to SSH back in and restart it. A more durable version of this same idea (baking a small supervisor — e.g. `supercronic` for the one-shot jobs on a schedule, plus a background loop for `realtime_flow.py` — directly into `Dockerfile.backend`'s entrypoint) is a reasonable next step if the on-demand/manual pattern above starts feeling like too much upkeep, but it's a real change to the container's architecture, not something this guide makes for you.
+
+**What actually happens when you run it.** `realtime_flow.py` is a passive watcher, not a generator — on startup it seeds its "already seen" file list from whatever's already on disk (`_scan_source_signatures()`'s "seed from current state; don't rebuild on startup"), so anything you seeded earlier via Part 3, step 5 looks unchanged to it. It then polls `data/batch/**/*.json` and `data/events/**/*.json` for new or modified files, and (only if `MONGO_PASSWORD` is set) tries to open a MongoDB change-stream watcher. Two consequences worth knowing before you background it:
+
+- **If you haven't installed the `[mongo]` extra, MongoDB change-stream detection is always a no-op — even with `MONGO_PASSWORD` set.** `infra/cloud/Dockerfile.backend` only runs `pip install -e ".[ml]"`, not `.[mongo]` (that extra is reserved for `infra/cloud/Dockerfile.orchestration`, a separate image this guide doesn't deploy). With `MONGO_PASSWORD` set but `pymongo` missing, `orchestration/realtime_flow.py`'s `_try_open_mongo_watcher()` gets past the env-var check, hits an `ImportError` importing `ingestion.mongo_change_stream`, and prints `pymongo not installed (pip install -e ".[mongo]") - skipping MongoDB change-stream detection.` and continues — not an error, just inert. File-based detection (below) is unaffected either way.
+- **Just backgrounding it won't visibly do anything on its own.** With nothing new landing in `data/batch/`/`data/events/` after startup, it polls and finds nothing — which is expected, not broken, but means there's nothing to watch for in `/tmp/realtime_flow.log` to confirm it's alive. To actually exercise it, trigger new file activity in a *second* SSH session while it's running:
+  ```bash
+  # re-run the batch generator - it writes fresh files as a side effect even
+  # though its own main job is a separate, direct rebuild
+  fly ssh console --app rmap-backend -C "python -m orchestration.synthetic_flow"
+
+  # or the purpose-built continuous generator, capped to a short window
+  fly ssh console --app rmap-backend -C "python synthetic/stream_generator.py --sink files --duration-seconds 60"
+  ```
+  Either lands new JSON files inside `realtime_flow.py`'s debounce window, triggering its own reactive rebuild → compute → monitoring/anomaly-detection pass — that's the log line worth watching for, not anything Mongo-related.
+
+**Stopping it.** `disown` in the backgrounding command above detaches the process from its SSH session so it survives `exit`, which means you'll need to SSH back in to stop it rather than just closing the terminal:
+```bash
+fly ssh console --app rmap-backend
+# inside the session:
+tail /tmp/realtime_flow.log   # optional - see what it logged while it was running
+pkill -f orchestration.realtime_flow
+```
+`pkill -f` matches on the command string rather than a remembered PID, so it finds the process regardless of which SSH session started it.
 
 ---
 
